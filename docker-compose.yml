@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-file-bot
+    restart: unless-stopped
+    volumes:
+      # 用户数据持久化
+      - ./users:/app/users
+      # 配置文件
+      - ./config.json:/app/config.json:ro
+      # 系统提示词（方便修改）
+      - ./system_prompt.txt:/app/system_prompt.txt:ro
+      # 日志
+      - ./logs:/app/logs
+      # Claude 对话历史持久化（防止重建后失忆）
+      - ./claude_data:/root/.claude
+    environment:
+      - TZ=Asia/Shanghai
+      # API keys are loaded from config.json, no need to set here
+      # - ANTHROPIC_API_KEY=your_key
+      # - ANTHROPIC_BASE_URL=https://api.anthropic.com
+    # 安全限制
+    security_opt:
+      - no-new-privileges:true
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

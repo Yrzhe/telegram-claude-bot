@@ -1,0 +1,12 @@
+{
+    "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+    "admin_users": [123456789],
+    "users_data_directory": "/app/users",
+    "default_quota_gb": 5.0,
+    "allow_new_users": true,
+    "session_timeout_minutes": 60,
+    "anthropic_api_key": "YOUR_ANTHROPIC_API_KEY",
+    "anthropic_base_url": "https://api.anthropic.com",
+    "claude_model": "claude-sonnet-4-5-20250929",
+    "mistral_api_key": "YOUR_MISTRAL_API_KEY"
+}
