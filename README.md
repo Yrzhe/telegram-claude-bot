@@ -1,42 +1,44 @@
 # Telegram Claude Bot
 
-一个基于 Claude Agent SDK 的多用户 Telegram 机器人，提供 AI 对话、文件管理和智能助手功能。
+A multi-user Telegram bot powered by Claude Agent SDK, featuring AI conversations, file management, and intelligent assistant capabilities.
 
-## 功能特性
+[中文文档](./README_CN.md)
 
-- **AI 对话** - 基于 Claude Agent SDK，支持多轮对话和会话记忆
-- **多用户支持** - 用户隔离，独立存储空间和配置
-- **文件管理** - 上传、下载、组织文件，支持文档分析
-- **用户偏好记忆** - 自动记住用户的偏好和指令
-- **定时任务** - 支持设置定时任务（如定时推送新闻）
-- **自定义命令** - 用户可创建自定义快捷命令
-- **存储配额** - 每用户 5GB 存储配额（可配置）
-- **网络搜索** - 支持实时网络搜索获取最新信息
+## Features
 
-## 快速开始
+- **AI Conversations** - Powered by Claude Agent SDK with multi-turn dialogue and session memory
+- **Multi-User Support** - User isolation with independent storage space and configuration
+- **File Management** - Upload, download, and organize files with document analysis support
+- **User Preference Memory** - Automatically remembers user preferences and instructions
+- **Scheduled Tasks** - Set up scheduled tasks (e.g., scheduled news push)
+- **Custom Commands** - Users can create custom shortcut commands
+- **Storage Quota** - 5GB storage quota per user (configurable)
+- **Web Search** - Real-time web search for up-to-date information
 
-### 前置要求
+## Quick Start
 
-- Docker 和 Docker Compose
-- Telegram Bot Token（从 [@BotFather](https://t.me/BotFather) 获取）
+### Prerequisites
+
+- Docker and Docker Compose
+- Telegram Bot Token (get from [@BotFather](https://t.me/BotFather))
 - Anthropic API Key
 
-### 安装部署
+### Installation
 
-1. **克隆仓库**
+1. **Clone the repository**
 
 ```bash
 git clone https://github.com/Yrzhe/telegram-claude-bot.git
 cd telegram-claude-bot
 ```
 
-2. **创建配置文件**
+2. **Create configuration file**
 
 ```bash
 cp config.example.json config.json
 ```
 
-3. **编辑配置**
+3. **Edit configuration**
 
 ```json
 {
@@ -52,97 +54,97 @@ cp config.example.json config.json
 }
 ```
 
-> **注意**: `anthropic_base_url` 不要包含 `/v1` 后缀
+> **Note**: `anthropic_base_url` should NOT include the `/v1` suffix
 
-4. **启动服务**
+4. **Start the service**
 
 ```bash
 docker compose up --build -d
 ```
 
-5. **查看日志**
+5. **View logs**
 
 ```bash
 docker compose logs -f
 ```
 
-## 命令列表
+## Commands
 
-| 命令 | 说明 |
-|------|------|
-| `/start` | 开始使用机器人 |
-| `/help` | 显示帮助信息 |
-| `/new` | 开始新对话（清除上下文） |
-| `/ls [path]` | 列出目录内容 |
-| `/storage` | 查看存储使用情况 |
-| `/session` | 查看当前会话状态 |
-| `/env` | 管理环境变量 |
-| `/packages` | 管理 Python 包 |
-| `/admin` | 管理员命令 |
+| Command | Description |
+|---------|-------------|
+| `/start` | Start using the bot |
+| `/help` | Display help information |
+| `/new` | Start a new conversation (clear context) |
+| `/ls [path]` | List directory contents |
+| `/storage` | View storage usage |
+| `/session` | View current session status |
+| `/env` | Manage environment variables |
+| `/packages` | Manage Python packages |
+| `/admin` | Admin commands |
 
-## 项目结构
+## Project Structure
 
 ```
 telegram-claude-bot/
-├── main.py              # 入口文件
-├── config.json          # 配置文件（不上传）
-├── config.example.json  # 配置模板
-├── requirements.txt     # Python 依赖
+├── main.py              # Entry point
+├── config.json          # Configuration (not committed)
+├── config.example.json  # Configuration template
+├── requirements.txt     # Python dependencies
 ├── Dockerfile
 ├── docker-compose.yml
-├── system_prompt.txt    # Claude 系统提示词
+├── system_prompt.txt    # Claude system prompt
 └── bot/
-    ├── handlers.py      # Telegram 命令处理
-    ├── file_manager.py  # 文件操作
-    ├── i18n.py          # 国际化
-    ├── agent/           # Claude Agent 集成
-    │   ├── client.py    # Agent 客户端
-    │   ├── tools.py     # MCP 工具定义
+    ├── handlers.py      # Telegram command handlers
+    ├── file_manager.py  # File operations
+    ├── i18n.py          # Internationalization
+    ├── agent/           # Claude Agent integration
+    │   ├── client.py    # Agent client
+    │   ├── tools.py     # MCP tool definitions
     │   └── ...
-    ├── user/            # 用户管理
-    │   ├── manager.py   # 用户生命周期
-    │   ├── storage.py   # 存储配额
+    ├── user/            # User management
+    │   ├── manager.py   # User lifecycle
+    │   ├── storage.py   # Storage quota
     │   └── ...
-    ├── session/         # 会话管理
-    ├── schedule/        # 定时任务
-    ├── skill/           # 技能系统
-    └── custom_command/  # 自定义命令
+    ├── session/         # Session management
+    ├── schedule/        # Scheduled tasks
+    ├── skill/           # Skills system
+    └── custom_command/  # Custom commands
 ```
 
-## 开发
+## Development
 
-### 修改代码后重新部署
+### Redeploy after code changes
 
 ```bash
 docker compose up --build -d
 ```
 
-> **重要**: 修改代码后必须使用 `--build` 参数，`docker compose restart` 不会更新代码！
+> **Important**: You MUST use the `--build` flag after code changes. `docker compose restart` does NOT update the code!
 
-### 仅修改配置后重启
+### Restart after configuration changes only
 
 ```bash
 docker compose restart
 ```
 
-## 配置说明
+## Configuration Reference
 
-| 配置项 | 说明 |
-|--------|------|
+| Option | Description |
+|--------|-------------|
 | `bot_token` | Telegram Bot Token |
-| `admin_users` | 管理员用户 ID 列表 |
-| `users_data_directory` | 用户数据目录（Docker 中使用 `/app/users`） |
-| `default_quota_gb` | 默认存储配额（GB） |
-| `allow_new_users` | 是否允许新用户 |
-| `session_timeout_minutes` | 会话超时时间（分钟） |
-| `anthropic_api_key` | Anthropic API 密钥 |
-| `anthropic_base_url` | API 地址（不含 `/v1`） |
-| `claude_model` | 使用的模型 |
+| `admin_users` | List of admin user IDs |
+| `users_data_directory` | User data directory (use `/app/users` in Docker) |
+| `default_quota_gb` | Default storage quota (GB) |
+| `allow_new_users` | Whether to allow new users |
+| `session_timeout_minutes` | Session timeout (minutes) |
+| `anthropic_api_key` | Anthropic API key |
+| `anthropic_base_url` | API URL (without `/v1`) |
+| `claude_model` | Model to use |
 
 ## License
 
 MIT
 
-## 作者
+## Author
 
 Created by [yrzhe](https://x.com/yrzhe_top)
