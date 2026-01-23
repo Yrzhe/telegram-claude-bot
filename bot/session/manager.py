@@ -18,6 +18,13 @@ class SessionInfo:
     created_at: float
     last_active_at: float
     message_count: int = 0
+    # Usage statistics
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    total_turns: int = 0
+    # Context compaction
+    compact_count: int = 0  # Number of times this session has been compacted
 
     def is_expired(self, timeout_seconds: int = 3600) -> bool:
         """检查会话是否过期（默认1小时，0表示永不过期）"""
@@ -63,7 +70,12 @@ class SessionManager:
                         user_id=user_id,
                         created_at=session_data['created_at'],
                         last_active_at=session_data['last_active_at'],
-                        message_count=session_data.get('message_count', 0)
+                        message_count=session_data.get('message_count', 0),
+                        total_input_tokens=session_data.get('total_input_tokens', 0),
+                        total_output_tokens=session_data.get('total_output_tokens', 0),
+                        total_cost_usd=session_data.get('total_cost_usd', 0.0),
+                        total_turns=session_data.get('total_turns', 0),
+                        compact_count=session_data.get('compact_count', 0)
                     )
                 logger.info(f"加载了 {len(self._sessions)} 个会话")
             except Exception as e:
@@ -136,19 +148,31 @@ class SessionManager:
         logger.info(f"为用户 {user_id} 创建新会话: {session_id}")
         return session
 
-    def update_session(self, user_id: int, session_id: str | None = None):
+    def update_session(
+        self,
+        user_id: int,
+        session_id: str | None = None,
+        usage: dict | None = None
+    ):
         """
         更新会话（更新活跃时间和消息计数）
 
         Args:
             user_id: 用户 ID
             session_id: 新的会话 ID（如果需要更新）
+            usage: 使用统计信息 {input_tokens, output_tokens, cost_usd, turns}
         """
         session = self._sessions.get(user_id)
         if session:
             session.touch()
             if session_id:
                 session.session_id = session_id
+            # Update usage statistics
+            if usage:
+                session.total_input_tokens += usage.get('input_tokens', 0)
+                session.total_output_tokens += usage.get('output_tokens', 0)
+                session.total_cost_usd += usage.get('cost_usd', 0.0)
+                session.total_turns += usage.get('turns', 0)
             self._save_sessions()
 
     def clear_session(self, user_id: int) -> bool:
@@ -192,7 +216,14 @@ class SessionManager:
             "elapsed_seconds": int(elapsed),
             "remaining_seconds": int(remaining),
             "remaining_minutes": remaining_minutes,
-            "no_expiry": self.session_timeout <= 0
+            "no_expiry": self.session_timeout <= 0,
+            # Usage statistics
+            "total_input_tokens": session.total_input_tokens,
+            "total_output_tokens": session.total_output_tokens,
+            "total_tokens": session.total_input_tokens + session.total_output_tokens,
+            "total_cost_usd": session.total_cost_usd,
+            "total_turns": session.total_turns,
+            "compact_count": session.compact_count
         }
 
     def cleanup_expired_sessions(self):
@@ -219,3 +250,70 @@ class SessionManager:
             }
             for session in self._sessions.values()
         ]
+
+    def compact_session(self, user_id: int) -> Optional[dict]:
+        """
+        压缩会话上下文（清除 session_id 但保留统计信息）
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            压缩前的会话信息，如果没有会话则返回 None
+        """
+        session = self._sessions.get(user_id)
+        if not session:
+            return None
+
+        # 保存当前统计信息
+        old_info = {
+            "session_id": session.session_id,
+            "message_count": session.message_count,
+            "total_input_tokens": session.total_input_tokens,
+            "total_output_tokens": session.total_output_tokens,
+            "total_cost_usd": session.total_cost_usd,
+            "total_turns": session.total_turns,
+            "compact_count": session.compact_count
+        }
+
+        # 清除会话 ID 但保留统计信息
+        # 新会话会继承统计
+        session.session_id = ""
+        session.compact_count += 1
+        session.last_active_at = time.time()
+        self._save_sessions()
+
+        logger.info(f"用户 {user_id} 会话已压缩 (第 {session.compact_count} 次)")
+        return old_info
+
+    def end_session(self, user_id: int) -> bool:
+        """
+        结束会话（清除 session_id，保留用户记录）
+
+        与 clear_session 不同，这只是清除 session_id 以便下次创建新会话
+        """
+        session = self._sessions.get(user_id)
+        if session:
+            session.session_id = ""
+            self._save_sessions()
+            logger.info(f"用户 {user_id} 会话已结束")
+            return True
+        return False
+
+    def needs_compaction(self, user_id: int, threshold_tokens: int = 150000) -> bool:
+        """
+        检查会话是否需要压缩
+
+        Args:
+            user_id: 用户 ID
+            threshold_tokens: Token 阈值（默认 150K，约为 Claude 上下文的 75%）
+
+        Returns:
+            是否需要压缩
+        """
+        session = self._sessions.get(user_id)
+        if not session:
+            return False
+
+        total_tokens = session.total_input_tokens + session.total_output_tokens
+        return total_tokens >= threshold_tokens

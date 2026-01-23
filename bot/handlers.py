@@ -2,10 +2,13 @@
 
 import logging
 import tempfile
+import asyncio
+import random
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
-from telegram import Update
+from telegram import Update, ReactionTypeEmoji
+from telegram.constants import ChatAction
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -75,6 +78,180 @@ async def send_long_message(update: Update, text: str, caption: str | None = Non
             caption=caption or t("LONG_RESPONSE_CAPTION"),
             filename="response.txt"
         )
+
+
+# ===== Typing Indicator =====
+
+class TypingIndicator:
+    """Context manager to show typing indicator while processing"""
+
+    def __init__(self, bot, chat_id: int, interval: float = 4.0):
+        self.bot = bot
+        self.chat_id = chat_id
+        self.interval = interval
+        self._task: asyncio.Task | None = None
+        self._stopped = False
+
+    async def _send_typing_loop(self):
+        """Continuously send typing action"""
+        while not self._stopped:
+            try:
+                await self.bot.send_chat_action(
+                    chat_id=self.chat_id,
+                    action=ChatAction.TYPING
+                )
+            except Exception as e:
+                logger.debug(f"Typing indicator failed: {e}")
+            await asyncio.sleep(self.interval)
+
+    async def start(self):
+        """Start showing typing indicator"""
+        self._stopped = False
+        self._task = asyncio.create_task(self._send_typing_loop())
+
+    async def stop(self):
+        """Stop showing typing indicator"""
+        self._stopped = True
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+
+# ===== Message Reactions =====
+
+# Available emoji reactions for Telegram
+REACTION_EMOJIS = [
+    "👍", "👎", "❤", "🔥", "🥰", "👏", "😁", "🤔",
+    "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩",
+    "🙏", "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳",
+    "❤‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆",
+    "💔", "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈",
+    "😴", "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈",
+    "😇", "😨", "🤝", "✍", "🤗", "🫡", "🎅", "🎄",
+    "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄",
+    "😘", "💊", "🙊", "😎", "👾", "🤷‍♂", "🤷", "🤷‍♀",
+    "😡"
+]
+
+# Common positive reactions
+POSITIVE_REACTIONS = ["👍", "❤", "🔥", "👏", "😁", "🎉", "🤩", "💯", "👌", "🤗"]
+# Thinking/curious reactions
+THINKING_REACTIONS = ["🤔", "👀", "🤓", "✍", "👨‍💻"]
+# Fun/playful reactions
+FUN_REACTIONS = ["😂", "🤣", "😎", "🦄", "🐳", "🎃", "👻", "🤪"]
+# Supportive reactions
+SUPPORTIVE_REACTIONS = ["🙏", "❤", "🤗", "😇", "💪"]
+
+
+async def maybe_add_reaction(
+    bot,
+    chat_id: int,
+    message_id: int,
+    user_message: str,
+    api_config: dict,
+    probability: float = 0.3
+) -> bool:
+    """
+    Maybe add a reaction to user's message using a lightweight LLM.
+
+    Args:
+        bot: Telegram bot instance
+        chat_id: Chat ID
+        message_id: Message ID to react to
+        user_message: User's message text
+        api_config: API configuration
+        probability: Probability of reacting (0-1)
+
+    Returns:
+        True if reaction was added
+    """
+    # Random probability check
+    if random.random() > probability:
+        return False
+
+    # Skip very short messages
+    if len(user_message.strip()) < 5:
+        return False
+
+    try:
+        emoji = await _get_reaction_emoji(user_message, api_config)
+        if emoji:
+            await bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=[ReactionTypeEmoji(emoji=emoji)]
+            )
+            logger.debug(f"Added reaction {emoji} to message {message_id}")
+            return True
+    except Exception as e:
+        logger.debug(f"Failed to add reaction: {e}")
+
+    return False
+
+
+async def _get_reaction_emoji(message: str, api_config: dict) -> str | None:
+    """
+    Use a lightweight LLM to decide on a reaction emoji.
+
+    Args:
+        message: User's message
+        api_config: API configuration
+
+    Returns:
+        Emoji string or None if no reaction needed
+    """
+    import anthropic
+
+    api_key = api_config.get("api_key")
+    base_url = api_config.get("base_url")
+
+    if not api_key:
+        # Fallback to random positive reaction
+        return random.choice(POSITIVE_REACTIONS)
+
+    try:
+        client_args = {"api_key": api_key}
+        if base_url:
+            client_args["base_url"] = base_url
+
+        client = anthropic.Anthropic(**client_args)
+
+        # Use Haiku for speed and cost
+        response = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=10,
+            messages=[{
+                "role": "user",
+                "content": f"""Given this message, respond with ONLY a single emoji reaction that fits the mood/content.
+If the message doesn't warrant a reaction, respond with "NONE".
+
+Available emojis: 👍 ❤ 🔥 👏 😁 🎉 🤩 💯 👌 🤗 🤔 👀 🤓 😂 🤣 😎 🦄 🙏 😇 💪 ✍ 👨‍💻
+
+Message: {message[:200]}
+
+Response (emoji only or NONE):"""
+            }]
+        )
+
+        result = response.content[0].text.strip()
+        if result == "NONE" or len(result) > 4:
+            return None
+
+        # Validate emoji is in our list
+        if result in REACTION_EMOJIS:
+            return result
+
+        # If LLM returned something unexpected, use a safe default
+        return None
+
+    except Exception as e:
+        logger.debug(f"Reaction LLM failed: {e}")
+        # On error, don't add reaction instead of random fallback
+        return None
 
 
 def setup_handlers(
@@ -433,6 +610,9 @@ Working directory: (hidden for security)
         user_config = user_manager.get_user_config(user_id)
         user_display_name = user_config.username or user_config.first_name or ""
 
+        # Get context summary (from previous /compact)
+        context_summary = user_manager.get_context_summary(user_id)
+
         user_agents[user_id] = TelegramAgentClient(
             user_id=user_id,
             working_directory=str(user_data_path),
@@ -450,7 +630,8 @@ Working directory: (hidden for security)
             task_manager=tm,
             user_display_name=user_display_name,
             custom_command_manager=custom_command_manager,
-            admin_user_ids=admin_users
+            admin_user_ids=admin_users,
+            context_summary=context_summary
         )
         return user_agents[user_id]
 
@@ -506,8 +687,10 @@ Working directory: (hidden for security)
 {t("COMMAND_LIST_TITLE")}
 {t("CMD_LS")}
 {t("CMD_STORAGE")}
+{t("CMD_STATUS")}
 {t("CMD_SESSION")}
 {t("CMD_NEW")}
+{t("CMD_COMPACT")}
 {t("CMD_ENV")}
 {t("CMD_PACKAGES")}
 {t("CMD_SCHEDULE")}
@@ -552,6 +735,76 @@ Working directory: (hidden for security)
 
 {t("NEW_SESSION_HINT")}
         """
+        await update.message.reply_text(text)
+
+    async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """View session status with usage statistics"""
+        user_id = update.effective_user.id
+
+        if not can_access(user_id):
+            await handle_unauthorized_user(update, context)
+            return
+
+        session_info = session_manager.get_session_info(user_id)
+
+        if not session_info:
+            await update.message.reply_text(t("STATUS_NO_SESSION"))
+            return
+
+        # Format time remaining
+        if session_info.get('no_expiry'):
+            remaining_text = t("NO_EXPIRY")
+        else:
+            remaining_text = f"{session_info['remaining_minutes']} {t('MINUTES')}"
+
+        # Format cost
+        cost_usd = session_info.get('total_cost_usd', 0)
+        if cost_usd >= 0.01:
+            cost_text = f"${cost_usd:.2f}"
+        elif cost_usd > 0:
+            cost_text = f"${cost_usd:.4f}"
+        else:
+            cost_text = "$0.00"
+
+        # Format tokens (with K notation for large numbers)
+        input_tokens = session_info.get('total_input_tokens', 0)
+        output_tokens = session_info.get('total_output_tokens', 0)
+        total_tokens = input_tokens + output_tokens
+
+        def format_tokens(n: int) -> str:
+            if n >= 1000000:
+                return f"{n/1000000:.1f}M"
+            elif n >= 1000:
+                return f"{n/1000:.1f}K"
+            return str(n)
+
+        # Get model name from api_config
+        model_name = api_config.get('model', 'unknown') if api_config else 'unknown'
+        # Simplify model name for display
+        if '/' in model_name:
+            model_name = model_name.split('/')[-1]
+        if model_name.startswith('claude-'):
+            model_name = model_name[7:]  # Remove 'claude-' prefix
+
+        text = f"""📊 {t("STATUS_TITLE")}
+
+🔗 {t("STATUS_SESSION_LABEL")}: {session_info['session_id']}
+💬 {t("STATUS_MESSAGES_LABEL")}: {session_info['message_count']}
+🔄 {t("STATUS_TURNS_LABEL")}: {session_info.get('total_turns', 0)}
+
+📈 {t("STATUS_TOKENS_LABEL")}:
+   {t("STATUS_INPUT_LABEL")}: {format_tokens(input_tokens)}
+   {t("STATUS_OUTPUT_LABEL")}: {format_tokens(output_tokens)}
+   {t("STATUS_TOTAL_LABEL")}: {format_tokens(total_tokens)}
+
+💰 {t("STATUS_COST_LABEL")}: {cost_text}
+
+⏱️ {t("STATUS_TIME_LABEL")}:
+   {t("STATUS_ACTIVE_LABEL")}: {session_info['elapsed_seconds']}s
+   {t("STATUS_REMAINING_LABEL")}: {remaining_text}
+
+🤖 {t("STATUS_MODEL_LABEL")}: {model_name}
+"""
         await update.message.reply_text(text)
 
     async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -610,6 +863,198 @@ Working directory: (hidden for security)
             else:
                 await update.message.reply_text(t("NO_SESSION_TO_CLEAR"))
 
+    async def compact_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Compact conversation context - generate summary and start fresh session"""
+        user_id = update.effective_user.id
+
+        if not can_access(user_id):
+            await handle_unauthorized_user(update, context)
+            return
+
+        # Check if there's an active session
+        session_info = session_manager.get_session_info(user_id)
+        if not session_info:
+            await update.message.reply_text(t("COMPACT_NO_SESSION"))
+            return
+
+        session = session_manager.get_session(user_id)
+        if not session or not session.session_id:
+            await update.message.reply_text(t("COMPACT_NO_SESSION"))
+            return
+
+        # Show processing message
+        thinking_msg = await update.message.reply_text(t("COMPACT_PROCESSING"))
+
+        try:
+            # Get chat log for summary generation
+            chat_log = chat_logger.get_current_session_log(user_id, session.session_id)
+
+            # Generate summary
+            summary = ""
+            if chat_log and len(chat_log) > 50:
+                summary = await _generate_context_summary(
+                    user_id, chat_log, api_config, user_manager, session_info
+                )
+            else:
+                # No substantial conversation, create minimal summary
+                summary = f"Previous session had {session_info['message_count']} messages with minimal content."
+
+            # Save context summary for next session
+            user_manager.save_context_summary(user_id, summary)
+
+            # Archive current chat log
+            chat_logger.archive_session_log(user_id, session.session_id, summary)
+
+            # Get stats before compacting
+            message_count = session_info['message_count']
+            total_tokens = session_info['total_tokens']
+            cost = session_info['total_cost_usd']
+
+            # Compact the session (clear session_id but keep stats)
+            session_manager.compact_session(user_id)
+
+            # Clear cached agent so it will be recreated with context summary
+            if user_id in user_agents:
+                del user_agents[user_id]
+
+            await thinking_msg.edit_text(t("COMPACT_SUCCESS",
+                message_count=message_count,
+                total_tokens=total_tokens,
+                cost=cost
+            ))
+
+        except Exception as e:
+            logger.error(f"Failed to compact session for user {user_id}: {e}")
+            await thinking_msg.edit_text(t("COMPACT_FAILED", error=str(e)))
+
+    async def _generate_context_summary(
+        user_id: int,
+        chat_log: str,
+        api_config: dict,
+        user_manager: UserManager,
+        session_info: dict
+    ) -> str:
+        """Generate comprehensive context summary for session continuation"""
+        import asyncio
+        import anthropic
+
+        # Limit chat log length
+        max_log_chars = 20000
+        if len(chat_log) > max_log_chars:
+            chat_log = chat_log[:max_log_chars] + "\n\n... [对话内容已截断]"
+
+        api_key = api_config.get("api_key")
+        base_url = api_config.get("base_url")
+
+        if not api_key:
+            return f"""Session Statistics:
+- Messages: {session_info.get('message_count', 0)}
+- Tokens used: {session_info.get('total_tokens', 0)}
+- Cost: ${session_info.get('total_cost_usd', 0):.4f}
+
+[Unable to generate detailed summary - no API key]"""
+
+        def _call_api():
+            client_args = {"api_key": api_key}
+            if base_url:
+                client_args["base_url"] = base_url
+
+            client = anthropic.Anthropic(**client_args)
+
+            response = client.messages.create(
+                model=api_config.get("model", "claude-sonnet-4-20250514"),
+                max_tokens=1000,
+                messages=[{
+                    "role": "user",
+                    "content": f"""Please create a comprehensive summary of this conversation that will help continue the conversation seamlessly in a new session.
+
+Include:
+1. Main topics discussed
+2. Key decisions or conclusions reached
+3. Important user preferences or requirements mentioned
+4. Any pending tasks or follow-ups
+5. User's communication style/language preference
+
+Format the summary in a way that's easy for an AI assistant to understand and use as context.
+
+Conversation:
+{chat_log}
+
+Summary:"""
+                }]
+            )
+
+            return response.content[0].text
+
+        try:
+            loop = asyncio.get_event_loop()
+            summary = await loop.run_in_executor(None, _call_api)
+
+            stats = f"""
+---
+Session Statistics:
+- Messages: {session_info.get('message_count', 0)}
+- Tokens: {session_info.get('total_tokens', 0)}
+- Cost: ${session_info.get('total_cost_usd', 0):.4f}
+- Compact #: {session_info.get('compact_count', 0) + 1}
+---
+"""
+            return stats + summary
+
+        except Exception as e:
+            logger.error(f"Claude API summary generation failed: {e}")
+            return f"""Session Statistics:
+- Messages: {session_info.get('message_count', 0)}
+- Tokens: {session_info.get('total_tokens', 0)}
+- Cost: ${session_info.get('total_cost_usd', 0):.4f}
+
+[API summary failed: {str(e)[:100]}]"""
+
+    async def _auto_compact_session(user_id: int, update: Update):
+        """Auto-compact session when token threshold is reached"""
+        try:
+            session_info = session_manager.get_session_info(user_id)
+            if not session_info:
+                return
+
+            session = session_manager.get_session(user_id)
+            if not session or not session.session_id:
+                return
+
+            total_tokens = session_info.get('total_tokens', 0)
+            logger.info(f"Auto-compacting session for user {user_id} (tokens: {total_tokens})")
+
+            # Notify user
+            await update.message.reply_text(t("COMPACT_AUTO_TRIGGERED", tokens=total_tokens))
+
+            # Get chat log
+            chat_log = chat_logger.get_current_session_log(user_id, session.session_id)
+
+            # Generate summary
+            if chat_log and len(chat_log) > 50:
+                summary = await _generate_context_summary(
+                    user_id, chat_log, api_config, user_manager, session_info
+                )
+            else:
+                summary = f"Previous session had {session_info['message_count']} messages."
+
+            # Save context summary
+            user_manager.save_context_summary(user_id, summary)
+
+            # Archive chat log
+            chat_logger.archive_session_log(user_id, session.session_id, summary)
+
+            # Compact session
+            session_manager.compact_session(user_id)
+
+            # Clear cached agent
+            if user_id in user_agents:
+                del user_agents[user_id]
+
+            logger.info(f"Auto-compact completed for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Auto-compact failed for user {user_id}: {e}")
 
     async def _generate_chat_summary(
         user_id: int,
@@ -1696,11 +2141,18 @@ Working directory: (hidden for security)
                     )
 
                     if response.session_id:
+                        usage_stats = {
+                            'input_tokens': response.input_tokens,
+                            'output_tokens': response.output_tokens,
+                            'cost_usd': response.cost_usd,
+                            'turns': response.num_turns
+                        }
                         existing_session = session_manager.get_session(user_id)
                         if existing_session:
-                            session_manager.update_session(user_id, response.session_id)
+                            session_manager.update_session(user_id, response.session_id, usage=usage_stats)
                         else:
                             session_manager.create_session(user_id, response.session_id)
+                            session_manager.update_session(user_id, usage=usage_stats)
 
                     await thinking_msg.delete()
 
@@ -1875,7 +2327,18 @@ Working directory: (hidden for security)
             try:
                 response = await agent.process_message(agent_prompt, resume_session_id)
                 if response.session_id:
-                    session_manager.update_session(user_id, response.session_id)
+                    usage_stats = {
+                        'input_tokens': response.input_tokens,
+                        'output_tokens': response.output_tokens,
+                        'cost_usd': response.cost_usd,
+                        'turns': response.num_turns
+                    }
+                    existing_session = session_manager.get_session(user_id)
+                    if existing_session:
+                        session_manager.update_session(user_id, response.session_id, usage=usage_stats)
+                    else:
+                        session_manager.create_session(user_id, response.session_id)
+                        session_manager.update_session(user_id, usage=usage_stats)
             except Exception as e:
                 logger.error(f"Agent execution failed for /{cmd_name}: {e}")
                 await update.message.reply_text(f"执行失败: {e}")
@@ -2072,6 +2535,20 @@ Working directory: (hidden for security)
     async def _process_user_message(user_message: str, update: Update, context: ContextTypes.DEFAULT_TYPE, thinking_msg, user_id: int):
         """Internal function to process user message"""
 
+        # Start typing indicator
+        typing = TypingIndicator(context.bot, user_id)
+        await typing.start()
+
+        # Maybe add reaction to user's message (30% probability)
+        asyncio.create_task(maybe_add_reaction(
+            bot=context.bot,
+            chat_id=user_id,
+            message_id=update.message.message_id,
+            user_message=user_message,
+            api_config=api_config,
+            probability=0.3
+        ))
+
         # Create progress update callback (edit the same message)
         async def update_progress(status: str):
             try:
@@ -2109,13 +2586,24 @@ Working directory: (hidden for security)
                     progress_callback=update_progress
                 )
 
-            # Update or create session
+            # Update or create session with usage stats
             if response.session_id:
+                usage_stats = {
+                    'input_tokens': response.input_tokens,
+                    'output_tokens': response.output_tokens,
+                    'cost_usd': response.cost_usd,
+                    'turns': response.num_turns
+                }
                 existing_session = session_manager.get_session(user_id)
                 if existing_session:
-                    session_manager.update_session(user_id, response.session_id)
+                    session_manager.update_session(user_id, response.session_id, usage=usage_stats)
                 else:
                     session_manager.create_session(user_id, response.session_id)
+                    session_manager.update_session(user_id, usage=usage_stats)
+
+                # Check if auto-compaction is needed (threshold: 150K tokens)
+                if session_manager.needs_compaction(user_id, threshold_tokens=150000):
+                    await _auto_compact_session(user_id, update)
 
             # Record chat history (JSON format)
             user_manager.add_chat_record(
@@ -2135,6 +2623,9 @@ Working directory: (hidden for security)
                 is_error=response.is_error
             )
 
+            # Stop typing indicator
+            await typing.stop()
+
             # Delete progress message
             await thinking_msg.delete()
 
@@ -2143,6 +2634,8 @@ Working directory: (hidden for security)
                 await send_long_message(update, response.text)
 
         except Exception as e:
+            # Stop typing indicator on error
+            await typing.stop()
             error_str = str(e)
             is_session_error = ("exit code 1" in error_str or "No conversation found" in error_str) and resume_session_id
             if is_session_error:
@@ -2171,11 +2664,13 @@ Working directory: (hidden for security)
                         session_id=response.session_id,
                         is_error=response.is_error
                     )
+                    await typing.stop()
                     await thinking_msg.delete()
                     if response.text:
                         await send_long_message(update, response.text)
                     return
                 except Exception as retry_error:
+                    await typing.stop()
                     logger.error(f"User {user_id} retry failed: {retry_error}")
                     user_manager.add_chat_record(
                         user_id=user_id,
@@ -2241,6 +2736,22 @@ Working directory: (hidden for security)
 
         # 发送处理中提示
         thinking_msg = await update.message.reply_text(f"🖼️ {t('PROCESSING')}")
+
+        # Start typing indicator
+        typing = TypingIndicator(context.bot, user_id)
+        await typing.start()
+
+        # Maybe add reaction to user's message (30% probability)
+        caption = update.message.caption or ""
+        if caption:
+            asyncio.create_task(maybe_add_reaction(
+                bot=context.bot,
+                chat_id=user_id,
+                message_id=update.message.message_id,
+                user_message=caption,
+                api_config=api_config,
+                probability=0.3
+            ))
 
         try:
             # 获取用户目录
@@ -2313,13 +2824,20 @@ Working directory: (hidden for security)
                     progress_callback=update_progress
                 )
 
-            # 更新 session
+            # 更新 session with usage stats
             if response.session_id:
+                usage_stats = {
+                    'input_tokens': response.input_tokens,
+                    'output_tokens': response.output_tokens,
+                    'cost_usd': response.cost_usd,
+                    'turns': response.num_turns
+                }
                 existing_session = session_manager.get_session(user_id)
                 if existing_session:
-                    session_manager.update_session(user_id, response.session_id)
+                    session_manager.update_session(user_id, response.session_id, usage=usage_stats)
                 else:
                     session_manager.create_session(user_id, response.session_id)
+                    session_manager.update_session(user_id, usage=usage_stats)
 
             # 记录聊天历史
             display_message = f"[Image] {caption}" if caption else "[Image]"
@@ -2339,6 +2857,9 @@ Working directory: (hidden for security)
                 is_error=response.is_error
             )
 
+            # Stop typing indicator
+            await typing.stop()
+
             # 删除进度消息
             await thinking_msg.delete()
 
@@ -2347,6 +2868,8 @@ Working directory: (hidden for security)
                 await send_long_message(update, response.text)
 
         except Exception as e:
+            # Stop typing indicator on error
+            await typing.stop()
             logger.error(f"User {user_id} photo processing failed: {e}")
             try:
                 await thinking_msg.edit_text(t("PROCESS_FAILED", error=str(e)))
@@ -2395,6 +2918,22 @@ Working directory: (hidden for security)
         # Send indicator
         thinking_msg = await update.message.reply_text(f"📥 {t('RECEIVING_FILE')}")
 
+        # Start typing indicator
+        typing = TypingIndicator(context.bot, user_id)
+        await typing.start()
+
+        # Maybe add reaction to user's message (30% probability)
+        caption = update.message.caption or ""
+        if caption:
+            asyncio.create_task(maybe_add_reaction(
+                bot=context.bot,
+                chat_id=user_id,
+                message_id=update.message.message_id,
+                user_message=caption,
+                api_config=api_config,
+                probability=0.3
+            ))
+
         try:
             # Get user directory
             user_data_path = user_manager.get_user_data_path(user_id)
@@ -2427,6 +2966,7 @@ Working directory: (hidden for security)
             if is_skill_upload:
                 # This looks like a skill package
                 pending_skill_installs[user_id] = file_path
+                await typing.stop()
                 await thinking_msg.edit_text(
                     f"📦 {t('FILE_SAVED', name=file_name, size=size_str)}\n\n"
                     f"{t('SKILL_UPLOAD_HINT')}"
@@ -2475,11 +3015,18 @@ Working directory: (hidden for security)
 
             # Update session
             if response.session_id:
+                usage_stats = {
+                    'input_tokens': response.input_tokens,
+                    'output_tokens': response.output_tokens,
+                    'cost_usd': response.cost_usd,
+                    'turns': response.num_turns
+                }
                 existing_session = session_manager.get_session(user_id)
                 if existing_session:
-                    session_manager.update_session(user_id, response.session_id)
+                    session_manager.update_session(user_id, response.session_id, usage=usage_stats)
                 else:
                     session_manager.create_session(user_id, response.session_id)
+                    session_manager.update_session(user_id, usage=usage_stats)
 
             # Record chat history
             user_manager.add_chat_record(
@@ -2490,6 +3037,9 @@ Working directory: (hidden for security)
                 is_error=response.is_error
             )
 
+            # Stop typing indicator
+            await typing.stop()
+
             # Delete progress message
             await thinking_msg.delete()
 
@@ -2498,6 +3048,8 @@ Working directory: (hidden for security)
                 await send_long_message(update, response.text)
 
         except Exception as e:
+            # Stop typing indicator on error
+            await typing.stop()
             error_str = str(e)
             is_session_error = ("exit code 1" in error_str or "No conversation found" in error_str) and resume_session_id
             if is_session_error:
@@ -2546,7 +3098,9 @@ Working directory: (hidden for security)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("session", session_command))
+    app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("new", new_session_command))
+    app.add_handler(CommandHandler("compact", compact_command))
     app.add_handler(CommandHandler("storage", storage_command))
     app.add_handler(CommandHandler("ls", ls))
     app.add_handler(CommandHandler("del", del_command))

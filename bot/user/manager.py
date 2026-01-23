@@ -386,3 +386,69 @@ class UserManager:
     def cleanup_expired_history(self) -> Dict[int, int]:
         """清理所有用户的过期历史记录"""
         return self.history.cleanup_all_users(self.get_user_retention)
+
+    # ===== 上下文总结相关方法 =====
+
+    def _get_context_summary_file(self, user_id: int) -> Path:
+        """获取用户的上下文总结文件路径"""
+        user_dir = self.get_user_data_path(user_id)
+        return user_dir / ".context_summary.txt"
+
+    def save_context_summary(self, user_id: int, summary: str) -> bool:
+        """
+        保存上下文总结
+
+        Args:
+            user_id: 用户 ID
+            summary: 上下文总结内容
+
+        Returns:
+            是否成功
+        """
+        try:
+            summary_file = self._get_context_summary_file(user_id)
+            summary_file.write_text(summary, encoding='utf-8')
+            logger.info(f"保存用户 {user_id} 的上下文总结")
+            return True
+        except Exception as e:
+            logger.error(f"保存上下文总结失败: {e}")
+            return False
+
+    def get_context_summary(self, user_id: int) -> Optional[str]:
+        """
+        获取用户的上下文总结
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            总结内容，如果没有则返回 None
+        """
+        try:
+            summary_file = self._get_context_summary_file(user_id)
+            if summary_file.exists():
+                return summary_file.read_text(encoding='utf-8')
+            return None
+        except Exception as e:
+            logger.error(f"读取上下文总结失败: {e}")
+            return None
+
+    def clear_context_summary(self, user_id: int) -> bool:
+        """
+        清除用户的上下文总结
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            是否成功
+        """
+        try:
+            summary_file = self._get_context_summary_file(user_id)
+            if summary_file.exists():
+                summary_file.unlink()
+                logger.info(f"清除用户 {user_id} 的上下文总结")
+            return True
+        except Exception as e:
+            logger.error(f"清除上下文总结失败: {e}")
+            return False

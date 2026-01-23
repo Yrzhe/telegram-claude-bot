@@ -33,8 +33,10 @@ class Strings:
     COMMAND_LIST_TITLE: str = "Commands:"
     CMD_LS: str = "/ls [path] - List directory contents"
     CMD_STORAGE: str = "/storage - View storage usage"
-    CMD_SESSION: str = "/session - View current session status"
+    CMD_STATUS: str = "/status - View session status (tokens, cost)"
+    CMD_SESSION: str = "/session - View current session info"
     CMD_NEW: str = "/new - Start new session (clear context)"
+    CMD_COMPACT: str = "/compact - Compress context (preserve memory)"
     CMD_ENV: str = "/env - Manage environment variables"
     CMD_PACKAGES: str = "/packages - Manage Python packages"
     CMD_SCHEDULE: str = "/schedule - Manage scheduled tasks"
@@ -58,6 +60,37 @@ class Strings:
     NEW_SESSION_HINT: str = "Send /new to start a new session (clear context)"
     SESSION_CLEARED: str = "Previous session cleared, starting new conversation.\n\nSend any message to begin."
     NO_SESSION_TO_CLEAR: str = "No active session.\n\nSend any message to start a new session."
+
+    # ===== Status (Usage Stats) =====
+    STATUS_TITLE: str = "Session Status"
+    STATUS_NO_SESSION: str = "No active session\n\nSend any message to start a conversation."
+    STATUS_SESSION_LABEL: str = "Session"
+    STATUS_MESSAGES_LABEL: str = "Messages"
+    STATUS_TURNS_LABEL: str = "API Turns"
+    STATUS_TOKENS_LABEL: str = "Tokens"
+    STATUS_INPUT_LABEL: str = "Input"
+    STATUS_OUTPUT_LABEL: str = "Output"
+    STATUS_TOTAL_LABEL: str = "Total"
+    STATUS_COST_LABEL: str = "Cost"
+    STATUS_TIME_LABEL: str = "Time"
+    STATUS_ACTIVE_LABEL: str = "Active"
+    STATUS_REMAINING_LABEL: str = "Remaining"
+    STATUS_MODEL_LABEL: str = "Model"
+
+    # ===== Compact (Context Compaction) =====
+    COMPACT_NO_SESSION: str = "No active session to compact.\n\nSend any message to start a conversation first."
+    COMPACT_PROCESSING: str = "Compacting conversation context..."
+    COMPACT_SUCCESS: str = """Context compacted successfully!
+
+Previous session:
+- Messages: {message_count}
+- Tokens: {total_tokens}
+- Cost: ${cost:.4f}
+
+The conversation summary has been saved. Your next message will start a fresh session with the context preserved."""
+    COMPACT_FAILED: str = "Failed to compact context: {error}"
+    COMPACT_AUTO_TRIGGERED: str = "Context limit approaching ({tokens} tokens). Auto-compacting..."
+    COMPACT_COUNT_LABEL: str = "Compact count"
 
     # ===== Storage =====
     STORAGE_TITLE: str = "Storage Usage"

@@ -5,6 +5,7 @@ User ID: {user_id}
 User Name: {user_display_name}
 Working Directory: {working_directory}
 {storage_info}
+{context_summary}
 
 Addressing the User (IMPORTANT):
 - If User Name is available, address them by name (e.g., "Hi Yumi!" or "好的，小明")

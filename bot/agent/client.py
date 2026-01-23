@@ -31,6 +31,11 @@ class AgentResponse:
     session_id: Optional[str]  # Session ID (for resume)
     is_error: bool = False
     error_message: Optional[str] = None
+    # Usage statistics
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    num_turns: int = 0
 
 
 class TelegramAgentClient:
@@ -58,7 +63,8 @@ class TelegramAgentClient:
         task_manager: Any | None = None,
         user_display_name: str | None = None,
         custom_command_manager: Any | None = None,
-        admin_user_ids: list[int] | None = None
+        admin_user_ids: list[int] | None = None,
+        context_summary: str | None = None
     ):
         """
         Initialize Agent client.
@@ -82,6 +88,7 @@ class TelegramAgentClient:
             user_display_name: User's display name (username or first_name) for friendly addressing
             custom_command_manager: Custom command manager for admin operations
             admin_user_ids: List of admin user IDs for permission checks
+            context_summary: Previous conversation summary (from /compact)
         """
         self.user_id = user_id
         self.working_directory = Path(working_directory).resolve()
@@ -100,6 +107,7 @@ class TelegramAgentClient:
         self.user_display_name = user_display_name or ""
         self.custom_command_manager = custom_command_manager
         self.admin_user_ids = admin_user_ids or []
+        self.context_summary = context_summary or ""
 
         # Initialize file tracker for tracking new files during task execution
         self.file_tracker = FileTracker(self.working_directory)
@@ -314,6 +322,17 @@ class TelegramAgentClient:
 - Available: {self.storage_info.get('available_formatted', 'N/A')}
 - Usage: {self.storage_info.get('percentage', 0)}%"""
 
+        # Build context summary string
+        context_str = ""
+        if self.context_summary:
+            context_str = f"""
+Previous Conversation Summary (IMPORTANT - Read this to understand context):
+---
+{self.context_summary}
+---
+This summary contains the key information from our previous conversation that was compacted to save context space.
+Use this information to maintain continuity with the user."""
+
         # Load prompt template from file
         prompt_file = Path(__file__).parent.parent.parent / "system_prompt.txt"
         try:
@@ -327,7 +346,8 @@ class TelegramAgentClient:
             user_id=self.user_id,
             working_directory=self.working_directory,
             storage_info=storage_str,
-            user_display_name=self.user_display_name
+            user_display_name=self.user_display_name,
+            context_summary=context_str
         )
 
         # Append custom skills if any
@@ -369,6 +389,11 @@ class TelegramAgentClient:
         is_error = False
         error_message = None
         step_count = 0
+        # Usage statistics
+        result_input_tokens = 0
+        result_output_tokens = 0
+        result_cost = 0.0
+        result_turns = 0
 
         # Tool name icons for progress display
         tool_icons = {
@@ -415,15 +440,22 @@ class TelegramAgentClient:
                                         logger.debug(f"Progress callback failed: {e}")
 
                     elif isinstance(message, ResultMessage):
-                        # Get session ID
+                        # Get session ID and usage info
                         session_id = message.session_id
+                        result_cost = message.total_cost_usd or 0
+                        result_turns = message.num_turns or 0
 
-                        cost = message.total_cost_usd or 0
+                        # Extract token usage from usage dict
+                        usage_data = message.usage or {}
+                        result_input_tokens = usage_data.get('input_tokens', 0)
+                        result_output_tokens = usage_data.get('output_tokens', 0)
+
                         logger.info(
                             f"User {self.user_id} {agent_type} completed: "
                             f"session={session_id[:8] if session_id else 'N/A'}..., "
-                            f"turns={message.num_turns}, "
-                            f"cost=${cost:.4f}"
+                            f"turns={result_turns}, "
+                            f"tokens={result_input_tokens}+{result_output_tokens}, "
+                            f"cost=${result_cost:.4f}"
                         )
 
                         if message.is_error:
@@ -462,7 +494,11 @@ class TelegramAgentClient:
             text=final_response,
             session_id=session_id,
             is_error=is_error,
-            error_message=error_message
+            error_message=error_message,
+            input_tokens=result_input_tokens,
+            output_tokens=result_output_tokens,
+            cost_usd=result_cost,
+            num_turns=result_turns
         )
 
 
