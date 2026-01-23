@@ -27,6 +27,7 @@ from .session import SessionManager, ChatLogger
 from .schedule import ScheduleManager
 from .skill import SkillManager
 from .custom_command import CustomCommandManager
+from .message_queue import MessageQueueManager
 from .i18n import t, get_tool_display_name
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,9 @@ def setup_handlers(
     task_managers: dict[int, TaskManager] = {}
     api_config = api_config or {}
 
+    # 创建消息队列管理器 (确保消息按顺序发送)
+    message_queue_manager: MessageQueueManager | None = None
+
     # 创建对话日志记录器
     chat_logger = ChatLogger(user_manager.base_path)
 
@@ -367,8 +371,39 @@ def setup_handlers(
             )
         return task_managers[user_id]
 
+    def update_usage_stats(user_id: int, session_id: str | None, usage_stats: dict, is_new_session: bool = False):
+        """
+        Update both session stats and cumulative stats.
+
+        Args:
+            user_id: User ID
+            session_id: Session ID (can be None)
+            usage_stats: Dict with input_tokens, output_tokens, cost_usd, turns
+            is_new_session: Whether this is a new session (for cumulative count)
+        """
+        # Update session stats
+        existing_session = session_manager.get_session(user_id)
+        if existing_session:
+            session_manager.update_session(user_id, session_id, usage=usage_stats)
+        else:
+            session_manager.create_session(user_id, session_id)
+            session_manager.update_session(user_id, usage=usage_stats)
+            is_new_session = True
+
+        # Update cumulative stats
+        user_manager.update_cumulative_stats(
+            user_id=user_id,
+            input_tokens=usage_stats.get('input_tokens', 0),
+            output_tokens=usage_stats.get('output_tokens', 0),
+            cost_usd=usage_stats.get('cost_usd', 0.0),
+            messages=1,
+            new_session=is_new_session
+        )
+
     def get_agent_for_user(user_id: int, bot) -> TelegramAgentClient:
         """Get or create Agent client for user"""
+        nonlocal message_queue_manager
+
         user_data_path = user_manager.init_user(user_id)
         storage_info = user_manager.get_user_storage_info(user_id)
         env_vars = user_manager.get_user_env_vars(user_id)
@@ -377,77 +412,12 @@ def setup_handlers(
         def check_quota(additional_bytes: int) -> tuple[bool, str]:
             return user_manager.check_user_quota(user_id, additional_bytes)
 
-        async def send_message(text: str):
-            if len(text) > 4000:
-                for i in range(0, len(text), 4000):
-                    await bot.send_message(chat_id=user_id, text=text[i:i+4000])
-            else:
-                await bot.send_message(chat_id=user_id, text=text)
+        # Initialize message queue manager if not already done
+        if message_queue_manager is None:
+            message_queue_manager = MessageQueueManager(bot)
 
-        async def send_file(file_path: str, caption: str | None) -> bool:
-            from pathlib import Path
-
-            # Build list of candidate paths to try
-            candidates = []
-            file_path_obj = Path(file_path)
-
-            # 1. Try as provided (relative to user_data_path)
-            candidates.append(user_data_path / file_path)
-
-            # 2. If absolute path, try directly
-            if file_path_obj.is_absolute():
-                candidates.append(file_path_obj)
-
-            # 3. Try just the filename in user_data_path root
-            if file_path_obj.name != file_path:
-                candidates.append(user_data_path / file_path_obj.name)
-
-            # 4. Search common subdirectories for the filename
-            common_subdirs = ['reports', 'analysis', 'documents', 'uploads', 'output']
-            for subdir in common_subdirs:
-                subdir_path = user_data_path / subdir
-                if subdir_path.exists():
-                    candidates.append(subdir_path / file_path_obj.name)
-                    # Also try full relative path under subdir
-                    if file_path_obj.name != file_path:
-                        candidates.append(subdir_path / file_path)
-
-            # Find first existing file
-            full_path = None
-            tried_paths = []
-            for candidate in candidates:
-                if candidate and candidate.exists() and candidate.is_file():
-                    full_path = candidate
-                    break
-                if candidate:
-                    tried_paths.append(str(candidate))
-
-            if not full_path:
-                logger.warning(
-                    f"File not found for user {user_id}: '{file_path}'. "
-                    f"Tried paths: {tried_paths[:5]}"  # Log first 5 paths
-                )
-                return False
-
-            # Check file size (50MB limit for Telegram)
-            if full_path.stat().st_size > 50 * 1024 * 1024:
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=t("FILE_TOO_LARGE")
-                )
-                return False
-
-            try:
-                await bot.send_document(
-                    chat_id=user_id,
-                    document=open(full_path, 'rb'),
-                    caption=caption
-                )
-                logger.info(f"File sent to user {user_id}: {full_path}")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to send file to user {user_id}: {full_path}, error: {e}")
-                return False
+        # Get queue-wrapped callbacks that ensure message ordering
+        send_message, send_file = message_queue_manager.get_callbacks(user_id, user_data_path)
 
         # Create delegate callback for Sub Agent tasks
         async def delegate_callback(description: str, prompt: str) -> str | None:
@@ -738,38 +708,15 @@ Working directory: (hidden for security)
         await update.message.reply_text(text)
 
     async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """View session status with usage statistics"""
+        """View usage statistics (cumulative + current session)"""
         user_id = update.effective_user.id
 
         if not can_access(user_id):
             await handle_unauthorized_user(update, context)
             return
 
-        session_info = session_manager.get_session_info(user_id)
-
-        if not session_info:
-            await update.message.reply_text(t("STATUS_NO_SESSION"))
-            return
-
-        # Format time remaining
-        if session_info.get('no_expiry'):
-            remaining_text = t("NO_EXPIRY")
-        else:
-            remaining_text = f"{session_info['remaining_minutes']} {t('MINUTES')}"
-
-        # Format cost
-        cost_usd = session_info.get('total_cost_usd', 0)
-        if cost_usd >= 0.01:
-            cost_text = f"${cost_usd:.2f}"
-        elif cost_usd > 0:
-            cost_text = f"${cost_usd:.4f}"
-        else:
-            cost_text = "$0.00"
-
-        # Format tokens (with K notation for large numbers)
-        input_tokens = session_info.get('total_input_tokens', 0)
-        output_tokens = session_info.get('total_output_tokens', 0)
-        total_tokens = input_tokens + output_tokens
+        # Get cumulative stats (persisted across all sessions)
+        cumulative = user_manager.get_cumulative_stats(user_id)
 
         def format_tokens(n: int) -> str:
             if n >= 1000000:
@@ -778,33 +725,67 @@ Working directory: (hidden for security)
                 return f"{n/1000:.1f}K"
             return str(n)
 
-        # Get model name from api_config
+        def format_cost(cost: float) -> str:
+            if cost >= 0.01:
+                return f"${cost:.2f}"
+            elif cost > 0:
+                return f"${cost:.4f}"
+            return "$0.00"
+
+        # Get model name
         model_name = api_config.get('model', 'unknown') if api_config else 'unknown'
-        # Simplify model name for display
         if '/' in model_name:
             model_name = model_name.split('/')[-1]
         if model_name.startswith('claude-'):
-            model_name = model_name[7:]  # Remove 'claude-' prefix
+            model_name = model_name[7:]
 
-        text = f"""📊 {t("STATUS_TITLE")}
+        # Cumulative totals
+        cum_input = cumulative['total_input_tokens']
+        cum_output = cumulative['total_output_tokens']
+        cum_total = cum_input + cum_output
+        cum_cost = cumulative['total_cost_usd']
+        cum_messages = cumulative['total_messages']
+        cum_sessions = cumulative['total_sessions']
 
-🔗 {t("STATUS_SESSION_LABEL")}: {session_info['session_id']}
-💬 {t("STATUS_MESSAGES_LABEL")}: {session_info['message_count']}
-🔄 {t("STATUS_TURNS_LABEL")}: {session_info.get('total_turns', 0)}
+        # Build status text
+        text = f"""📊 Usage Statistics
 
-📈 {t("STATUS_TOKENS_LABEL")}:
-   {t("STATUS_INPUT_LABEL")}: {format_tokens(input_tokens)}
-   {t("STATUS_OUTPUT_LABEL")}: {format_tokens(output_tokens)}
-   {t("STATUS_TOTAL_LABEL")}: {format_tokens(total_tokens)}
-
-💰 {t("STATUS_COST_LABEL")}: {cost_text}
-
-⏱️ {t("STATUS_TIME_LABEL")}:
-   {t("STATUS_ACTIVE_LABEL")}: {session_info['elapsed_seconds']}s
-   {t("STATUS_REMAINING_LABEL")}: {remaining_text}
-
-🤖 {t("STATUS_MODEL_LABEL")}: {model_name}
+📈 Total Usage (All Time):
+   Messages: {cum_messages}
+   Sessions: {cum_sessions}
+   Input Tokens: {format_tokens(cum_input)}
+   Output Tokens: {format_tokens(cum_output)}
+   Total Tokens: {format_tokens(cum_total)}
+   Total Cost: {format_cost(cum_cost)}
 """
+
+        # Add current session info if exists
+        session_info = session_manager.get_session_info(user_id)
+        if session_info:
+            sess_input = session_info.get('total_input_tokens', 0)
+            sess_output = session_info.get('total_output_tokens', 0)
+            sess_total = sess_input + sess_output
+            sess_cost = session_info.get('total_cost_usd', 0)
+
+            if session_info.get('no_expiry'):
+                remaining_text = "No expiry"
+            else:
+                remaining_text = f"{session_info['remaining_minutes']} min"
+
+            text += f"""
+📍 Current Session:
+   Session ID: {session_info['session_id'][:8]}...
+   Messages: {session_info['message_count']}
+   Turns: {session_info.get('total_turns', 0)}
+   Tokens: {format_tokens(sess_total)}
+   Cost: {format_cost(sess_cost)}
+   Remaining: {remaining_text}
+"""
+        else:
+            text += "\n📍 No active session"
+
+        text += f"\n🤖 Model: {model_name}"
+
         await update.message.reply_text(text)
 
     async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2147,12 +2128,7 @@ Session Statistics:
                             'cost_usd': response.cost_usd,
                             'turns': response.num_turns
                         }
-                        existing_session = session_manager.get_session(user_id)
-                        if existing_session:
-                            session_manager.update_session(user_id, response.session_id, usage=usage_stats)
-                        else:
-                            session_manager.create_session(user_id, response.session_id)
-                            session_manager.update_session(user_id, usage=usage_stats)
+                        update_usage_stats(user_id, response.session_id, usage_stats)
 
                     await thinking_msg.delete()
 
@@ -2333,12 +2309,7 @@ Session Statistics:
                         'cost_usd': response.cost_usd,
                         'turns': response.num_turns
                     }
-                    existing_session = session_manager.get_session(user_id)
-                    if existing_session:
-                        session_manager.update_session(user_id, response.session_id, usage=usage_stats)
-                    else:
-                        session_manager.create_session(user_id, response.session_id)
-                        session_manager.update_session(user_id, usage=usage_stats)
+                    update_usage_stats(user_id, response.session_id, usage_stats)
             except Exception as e:
                 logger.error(f"Agent execution failed for /{cmd_name}: {e}")
                 await update.message.reply_text(f"执行失败: {e}")
@@ -2594,12 +2565,7 @@ Session Statistics:
                     'cost_usd': response.cost_usd,
                     'turns': response.num_turns
                 }
-                existing_session = session_manager.get_session(user_id)
-                if existing_session:
-                    session_manager.update_session(user_id, response.session_id, usage=usage_stats)
-                else:
-                    session_manager.create_session(user_id, response.session_id)
-                    session_manager.update_session(user_id, usage=usage_stats)
+                update_usage_stats(user_id, response.session_id, usage_stats)
 
                 # Check if auto-compaction is needed (threshold: 150K tokens)
                 if session_manager.needs_compaction(user_id, threshold_tokens=150000):
@@ -2832,12 +2798,7 @@ Session Statistics:
                     'cost_usd': response.cost_usd,
                     'turns': response.num_turns
                 }
-                existing_session = session_manager.get_session(user_id)
-                if existing_session:
-                    session_manager.update_session(user_id, response.session_id, usage=usage_stats)
-                else:
-                    session_manager.create_session(user_id, response.session_id)
-                    session_manager.update_session(user_id, usage=usage_stats)
+                update_usage_stats(user_id, response.session_id, usage_stats)
 
             # 记录聊天历史
             display_message = f"[Image] {caption}" if caption else "[Image]"
@@ -3021,12 +2982,7 @@ Session Statistics:
                     'cost_usd': response.cost_usd,
                     'turns': response.num_turns
                 }
-                existing_session = session_manager.get_session(user_id)
-                if existing_session:
-                    session_manager.update_session(user_id, response.session_id, usage=usage_stats)
-                else:
-                    session_manager.create_session(user_id, response.session_id)
-                    session_manager.update_session(user_id, usage=usage_stats)
+                update_usage_stats(user_id, response.session_id, usage_stats)
 
             # Record chat history
             user_manager.add_chat_record(

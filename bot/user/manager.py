@@ -24,6 +24,12 @@ class UserConfig:
     retention_days: int = 30  # 对话历史保留天数
     username: str = ""  # Telegram 用户名
     first_name: str = ""  # Telegram 名字
+    # Cumulative usage statistics (persisted across all sessions)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    total_messages: int = 0
+    total_sessions: int = 0
 
     @classmethod
     def default(cls, user_id: int, default_quota: int, username: str = "", first_name: str = "") -> 'UserConfig':
@@ -77,7 +83,13 @@ class UserManager:
                         notes=config_data.get("notes", ""),
                         retention_days=config_data.get("retention_days", 30),
                         username=config_data.get("username", ""),
-                        first_name=config_data.get("first_name", "")
+                        first_name=config_data.get("first_name", ""),
+                        # Load cumulative statistics
+                        total_input_tokens=config_data.get("total_input_tokens", 0),
+                        total_output_tokens=config_data.get("total_output_tokens", 0),
+                        total_cost_usd=config_data.get("total_cost_usd", 0.0),
+                        total_messages=config_data.get("total_messages", 0),
+                        total_sessions=config_data.get("total_sessions", 0)
                     )
                 logger.info(f"加载了 {len(self._user_configs)} 个用户配置")
             except Exception as e:
@@ -220,6 +232,66 @@ class UserManager:
         """检查用户是否启用"""
         config = self.get_user_config(user_id)
         return config.enabled
+
+    def update_cumulative_stats(
+        self,
+        user_id: int,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cost_usd: float = 0.0,
+        messages: int = 0,
+        new_session: bool = False
+    ) -> None:
+        """
+        Update user's cumulative usage statistics.
+
+        Args:
+            user_id: User ID
+            input_tokens: Input tokens to add
+            output_tokens: Output tokens to add
+            cost_usd: Cost in USD to add
+            messages: Number of messages to add
+            new_session: Whether this is a new session (increments session count)
+        """
+        config = self.get_user_config(user_id)
+        config.total_input_tokens += input_tokens
+        config.total_output_tokens += output_tokens
+        config.total_cost_usd += cost_usd
+        config.total_messages += messages
+        if new_session:
+            config.total_sessions += 1
+        self._save_configs()
+
+    def get_cumulative_stats(self, user_id: int) -> dict:
+        """
+        Get user's cumulative usage statistics.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Dict with total_input_tokens, total_output_tokens, total_cost_usd,
+            total_messages, total_sessions
+        """
+        config = self.get_user_config(user_id)
+        return {
+            'total_input_tokens': config.total_input_tokens,
+            'total_output_tokens': config.total_output_tokens,
+            'total_cost_usd': config.total_cost_usd,
+            'total_messages': config.total_messages,
+            'total_sessions': config.total_sessions
+        }
+
+    def reset_cumulative_stats(self, user_id: int) -> None:
+        """Reset user's cumulative statistics to zero."""
+        config = self.get_user_config(user_id)
+        config.total_input_tokens = 0
+        config.total_output_tokens = 0
+        config.total_cost_usd = 0.0
+        config.total_messages = 0
+        config.total_sessions = 0
+        self._save_configs()
+        logger.info(f"Reset cumulative stats for user {user_id}")
 
     def is_admin(self, user_id: int) -> bool:
         """检查用户是否为管理员"""

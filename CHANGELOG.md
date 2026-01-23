@@ -4,6 +4,177 @@
 
 ---
 
+## [2026-01-23] /status 显示累计统计（跨会话）
+
+### 问题
+`/new` 后 `/status` 统计归零，用户希望看到累计总量而非单次会话。
+
+### 修复
+
+**新增累计统计字段**
+- UserConfig 新增：total_input_tokens, total_output_tokens, total_cost_usd, total_messages, total_sessions
+- 数据持久化到 users.json，重启后不丢失
+
+**更新 /status 显示**
+- 显示 All Time 累计统计（消息数、会话数、Token、费用）
+- 显示 Current Session 当前会话信息
+- `/new` 后累计不归零，只清除当前会话
+
+**新增方法**
+- `user_manager.update_cumulative_stats()` - 更新累计统计
+- `user_manager.get_cumulative_stats()` - 获取累计统计
+- `user_manager.reset_cumulative_stats()` - 重置累计统计（管理员用）
+
+### 修改文件
+- `bot/user/manager.py` - UserConfig 新增统计字段和方法
+- `bot/handlers.py` - 更新 status_command，新增 update_usage_stats 辅助函数
+
+---
+
+## [2026-01-23] 启用 Bash 命令执行能力（带安全检查）
+
+### 背景
+之前 Bash 被完全禁用，导致 Agent 无法执行 Python 脚本（如生成 GIF）。用户只能收到脚本文件而非执行结果。
+
+### 新增功能
+
+**多层安全检查机制**
+- `bot/bash_safety.py` - Bash 命令安全检查器
+- 在 PreToolUse hook 中拦截并验证每条 Bash 命令
+
+**安全检查层级**：
+
+1. **危险模式黑名单**（Layer 1）
+   - `rm -rf /`, `rm -rf ~` - 系统破坏
+   - `sudo`, `su` - 提权命令
+   - `shutdown`, `reboot` - 系统控制
+   - `chmod 777 /` - 权限攻击
+   - `curl | bash` - 远程代码执行
+   - 访问 `/etc/`, `/proc/`, `/sys/`
+
+2. **安全前缀白名单**（Layer 2）
+   - `python`, `pip` - Python 操作
+   - `ls`, `cat`, `head`, `tail` - 文件查看
+   - `git`, `node`, `npm` - 开发工具
+   - `ffmpeg`, `convert` - 多媒体处理
+
+3. **路径敏感命令验证**（Layer 3）
+   - `rm`, `cp`, `mv`, `chmod` 等命令
+   - 验证所有路径都在用户工作目录内
+
+4. **未知命令监控**（Layer 4）
+   - 不在白名单但无危险模式的命令
+   - 允许执行但记录日志监控
+
+### 允许的操作示例
+```bash
+pip install pillow           # 安装 Python 包
+python scripts/gen_gif.py    # 运行 Python 脚本
+ffmpeg -i input.mp4 out.gif  # 视频转 GIF
+ls -la documents/            # 查看文件
+```
+
+### 被阻止的操作示例
+```bash
+sudo apt install xxx         # 需要 root
+rm -rf /                     # 系统破坏
+cat /etc/passwd              # 敏感文件
+curl xxx | bash              # 远程执行
+```
+
+### 修改文件
+- `bot/bash_safety.py` - 新增安全检查模块
+- `bot/agent/client.py` - 启用 Bash，添加安全 hook
+- `prompts/rules.md` - 添加 Bash 使用规则
+- `prompts/tools.md` - 更新能力列表
+
+### 使用场景
+- 生成 GIF/图片（Python + PIL）
+- 运行数据处理脚本
+- 安装 Python 依赖
+- 多媒体格式转换
+
+---
+
+## [2026-01-23] 系统提示词模块化重构
+
+### 背景
+原有的 `system_prompt.txt` 是一个 314 行的单体文件，难以维护和扩展。Skills 信息也是静态的，无法动态加载。
+
+### 重构内容
+
+**模块化提示词架构**
+创建 `prompts/` 目录，将提示词拆分为独立模块：
+
+- `prompts/soul.md` - Bot 人格和身份（品牌、价值观、语言偏好）
+- `prompts/rules.md` - 操作规则（格式规则、安全规则、路径显示规则）
+- `prompts/tools.md` - 可用工具描述（核心能力、工具列表、使用指南）
+- `prompts/skills_intro.md` - Skills 系统介绍模板
+- `prompts/context.md` - 用户上下文模板（动态填充）
+- `prompts/skills/README.md` - Skills 开发指南
+
+**动态 Skills 加载**
+- Skills 列表现在从 `.claude/skills/` 目录动态生成
+- 自动提取每个 Skill 的 YAML frontmatter（name, description, triggers）
+- 新增或删除 Skill 无需修改系统提示词
+
+**新增 Prompt Builder 模块**
+- `bot/prompt_builder.py` - 提示词组装器
+- `build_system_prompt()` - 从模块化组件构建完整提示词
+- `get_available_skills()` - 动态获取可用 Skills
+- `extract_skill_metadata()` - 从 SKILL.md 提取元数据
+
+### 修改文件
+- `prompts/` - 新增目录及 5 个模块文件
+- `bot/prompt_builder.py` - 新增提示词构建器
+- `bot/agent/client.py` - 使用新的 prompt builder
+
+### 优势
+- 各模块职责单一，易于维护
+- Skills 动态加载，添加新 Skill 无需改代码
+- 提示词全部英文，避免编码问题
+- 易于扩展新的提示词模块
+
+---
+
+## [2026-01-23] 修复消息顺序问题 - 消息队列序列化
+
+### 问题背景
+- 用户反馈 Bot 发送的消息顺序有时不正确
+- 例如：Claude 说 "现在发送给你" 但文件先到达，或者消息顺序错乱
+- 原因：多个异步消息/文件发送操作没有序列化，存在竞态条件
+- Telegram API 不保证消息按发送顺序到达
+
+### 修复内容
+
+**新增消息队列系统**
+- 创建 `bot/message_queue.py` 模块
+- `MessageQueueManager` - 全局消息队列管理器
+- `UserMessageQueue` - 每用户独立的消息队列
+- 所有消息/文件发送操作通过队列序列化，确保 FIFO 顺序
+
+**队列工作原理**
+1. 发送消息/文件时，请求入队
+2. 专门的处理任务按顺序处理队列
+3. 每条消息发送完成后才处理下一条
+4. 支持自动队列刷新和并发安全
+
+**集成改动**
+- `handlers.py` 中的 `send_message` 和 `send_file` 回调现在使用队列包装
+- Agent 工具、文件追踪、Sub Agent 等所有发送操作都自动序列化
+- 无需修改其他模块，改动对调用方透明
+
+### 修改文件
+- `bot/message_queue.py` - 新增消息队列模块
+- `bot/handlers.py` - 集成 MessageQueueManager，使用队列包装的回调
+
+### 注意事项
+- 需要 `docker compose up --build -d` 重新构建
+- 队列是异步处理，不会阻塞调用方
+- 每个用户有独立的队列，不同用户之间不互相影响
+
+---
+
 ## [2026-01-23] Bug 修复：API 配置和 /status 显示
 
 ### 修复内容

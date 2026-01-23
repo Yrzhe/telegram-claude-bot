@@ -20,6 +20,8 @@ from claude_agent_sdk import (
 from .tools import create_telegram_tools, set_tool_config
 from ..i18n import t, get_tool_display_name
 from ..file_tracker import FileTracker, send_tracked_files
+from ..prompt_builder import build_system_prompt, get_fallback_prompt
+from ..bash_safety import check_bash_safety, SafetyLevel
 
 logger = logging.getLogger(__name__)
 
@@ -188,9 +190,31 @@ class TelegramAgentClient:
         tool_use_id: str | None,
         context: HookContext
     ) -> Dict[str, Any]:
-        """Pre-tool hook - for path security and quota checking."""
+        """Pre-tool hook - for path security, quota checking, and Bash safety."""
         tool_name = input_data.get('tool_name', '')
         tool_input = input_data.get('tool_input', {})
+
+        # Bash safety check - CRITICAL
+        if tool_name == 'Bash':
+            command = tool_input.get('command', '')
+            result = check_bash_safety(command, self.working_directory, self.user_id)
+
+            if not result.is_safe:
+                logger.warning(
+                    f"User {self.user_id} Bash DENIED: {result.reason} - "
+                    f"command: {command[:100]}..."
+                )
+                return {
+                    'hookSpecificOutput': {
+                        'hookEventName': 'PreToolUse',
+                        'permissionDecision': 'deny',
+                        'permissionDecisionReason': f'Bash command blocked: {result.reason}'
+                    }
+                }
+
+            # Log allowed commands for monitoring
+            if result.level == SafetyLevel.UNKNOWN:
+                logger.info(f"User {self.user_id} Bash (monitored): {command[:100]}...")
 
         # Security check: validate path is within working directory
         if tool_name in ('Read', 'Write', 'Edit', 'Glob', 'Grep'):
@@ -240,11 +264,11 @@ class TelegramAgentClient:
             resume_session_id: Session ID to resume (None for new session)
             custom_system_prompt: Custom system prompt (for Sub Agents)
         """
-        # Always enable hooks for path security; quota check is conditional
+        # Always enable hooks for path security, quota check, and Bash safety
         hooks = {
             'PreToolUse': [
                 HookMatcher(
-                    matcher='Read|Write|Edit|Glob|Grep',
+                    matcher='Read|Write|Edit|Glob|Grep|Bash',
                     hooks=[self._pre_tool_hook]
                 )
             ]
@@ -263,6 +287,7 @@ class TelegramAgentClient:
             "Glob",
             "Grep",
             "Skill",
+            "Bash",  # Enabled with safety checks via PreToolUse hook
         ]
 
         # Main Agent can send messages/files, delegate tasks, and manage schedules
@@ -296,7 +321,7 @@ class TelegramAgentClient:
             cwd=str(self.working_directory),
             mcp_servers={"telegram": self.mcp_server},
             allowed_tools=allowed_tools,
-            disallowed_tools=["Bash"],
+            # Bash is now allowed with safety checks via PreToolUse hook
             permission_mode="acceptEdits",
             system_prompt=system_prompt,
             env=self.env_vars,
@@ -312,49 +337,20 @@ class TelegramAgentClient:
         return options
 
     def _get_system_prompt(self) -> str:
-        """Get system prompt (loaded from external file)"""
-        # Build storage info string
-        storage_str = ""
-        if self.storage_info:
-            storage_str = f"""Storage usage:
-- Used: {self.storage_info.get('used_formatted', 'N/A')}
-- Quota: {self.storage_info.get('quota_formatted', 'N/A')}
-- Available: {self.storage_info.get('available_formatted', 'N/A')}
-- Usage: {self.storage_info.get('percentage', 0)}%"""
-
-        # Build context summary string
-        context_str = ""
-        if self.context_summary:
-            context_str = f"""
-Previous Conversation Summary (IMPORTANT - Read this to understand context):
----
-{self.context_summary}
----
-This summary contains the key information from our previous conversation that was compacted to save context space.
-Use this information to maintain continuity with the user."""
-
-        # Load prompt template from file
-        prompt_file = Path(__file__).parent.parent.parent / "system_prompt.txt"
+        """Get system prompt (built from modular components)"""
         try:
-            template = prompt_file.read_text(encoding='utf-8')
-        except FileNotFoundError:
-            logger.warning(f"System prompt file not found: {prompt_file}, using default")
-            template = "You are an AI assistant. User ID: {user_id}, Working directory: {working_directory}"
-
-        # Replace variables
-        prompt = template.format(
-            user_id=self.user_id,
-            working_directory=self.working_directory,
-            storage_info=storage_str,
-            user_display_name=self.user_display_name,
-            context_summary=context_str
-        )
-
-        # Append custom skills if any
-        if self.custom_skills_content:
-            prompt += self.custom_skills_content
-
-        return prompt
+            prompt = build_system_prompt(
+                user_id=self.user_id,
+                user_display_name=self.user_display_name,
+                working_directory=str(self.working_directory),
+                storage_info=self.storage_info,
+                context_summary=self.context_summary,
+                custom_skills_content=self.custom_skills_content
+            )
+            return prompt
+        except Exception as e:
+            logger.error(f"Failed to build system prompt: {e}")
+            return get_fallback_prompt(self.user_id, str(self.working_directory))
 
     async def process_message(
         self,
