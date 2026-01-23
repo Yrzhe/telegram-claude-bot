@@ -22,6 +22,7 @@ from .agent.message_handler import get_message_handler
 from .agent.task_manager import TaskManager, SubAgentTask
 from .agent.review import create_review_callback
 from .agent.tools import clean_markdown_for_telegram
+from .prompt_builder import build_sub_agent_prompt
 from .user import UserManager
 from .session import SessionManager, ChatLogger
 from .schedule import ScheduleManager
@@ -419,6 +420,11 @@ def setup_handlers(
         # Get queue-wrapped callbacks that ensure message ordering
         send_message, send_file = message_queue_manager.get_callbacks(user_id, user_data_path)
 
+        # Get user's custom skills (needed by sub agents)
+        custom_skills_content = ""
+        if skill_manager:
+            custom_skills_content = skill_manager.get_skills_for_agent(user_id)
+
         # Create delegate callback for Sub Agent tasks
         async def delegate_callback(description: str, prompt: str) -> str | None:
             """Create a Sub Agent task"""
@@ -439,25 +445,13 @@ def setup_handlers(
                     send_file_callback=send_file
                 )
 
-                # Create system prompt for sub agent
-                sub_system_prompt = f"""You are a Sub Agent working on a delegated task.
-Task: {description}
+                # Build modular system prompt for sub agent
+                sub_system_prompt = build_sub_agent_prompt(
+                    task_description=description,
+                    working_directory=str(user_data_path),
+                    custom_skills_content=custom_skills_content
+                )
 
-RULES:
-1. Work independently to complete this task
-2. If you create report files, you MUST send them using send_telegram_file tool
-3. NEVER show full system paths like /app/users/xxx - use relative paths only (e.g., analysis/report.md)
-4. After completing, return a brief summary (the user will receive files separately)
-5. You cannot send text messages to users - only files
-
-FILE PATH RULES (CRITICAL):
-- You can ONLY create/write files in these directories: reports/, analysis/, documents/, output/
-- NEVER use /tmp, /var, or any system directory - they are blocked
-- Always use relative paths like "reports/my_report.txt", NOT absolute paths
-- Example: Write to "reports/tariff_monitor.md", then send with send_telegram_file("reports/tariff_monitor.md")
-
-Working directory: (hidden for security)
-"""
                 response = await sub_agent.process_message(
                     prompt,
                     custom_system_prompt=sub_system_prompt
@@ -500,42 +494,17 @@ Working directory: (hidden for security)
                     send_file_callback=send_file
                 )
 
-                # Build prompt with retry context if this is a retry
-                current_prompt = prompt
-                if task.retry_count > 0 and task.retry_history:
-                    last_feedback = task.retry_history[-1].get("feedback", "")
-                    current_prompt = f"""{prompt}
+                # Build modular system prompt for sub agent with retry history
+                sub_system_prompt = build_sub_agent_prompt(
+                    task_description=description,
+                    working_directory=str(user_data_path),
+                    review_criteria=review_criteria,
+                    retry_history=task.retry_history if task.retry_count > 0 else None,
+                    custom_skills_content=custom_skills_content
+                )
 
-=== IMPORTANT: This is retry #{task.retry_count + 1} ===
-Previous attempt was rejected with the following feedback:
-{last_feedback}
-
-Please address the issues mentioned above and improve your response."""
-
-                # Create system prompt for sub agent
-                sub_system_prompt = f"""You are a Sub Agent working on a delegated task.
-Task: {description}
-
-QUALITY CRITERIA (your output will be reviewed against these):
-{review_criteria}
-
-RULES:
-1. Work independently to complete this task
-2. If you create report files, you MUST send them using send_telegram_file tool
-3. NEVER show full system paths like /app/users/xxx - use relative paths only (e.g., analysis/report.md)
-4. After completing, return a comprehensive result that meets the quality criteria
-5. You cannot send text messages to users - only files
-
-FILE PATH RULES (CRITICAL):
-- You can ONLY create/write files in these directories: reports/, analysis/, documents/, output/
-- NEVER use /tmp, /var, or any system directory - they are blocked
-- Always use relative paths like "reports/my_report.txt", NOT absolute paths
-- Example: Write to "reports/tariff_monitor.md", then send with send_telegram_file("reports/tariff_monitor.md")
-
-Working directory: (hidden for security)
-"""
                 response = await sub_agent.process_message(
-                    current_prompt,
+                    prompt,
                     custom_system_prompt=sub_system_prompt
                 )
 
@@ -570,11 +539,6 @@ Working directory: (hidden for security)
             agent_env_vars["ANTHROPIC_API_KEY"] = api_config["api_key"]
         if api_config.get("base_url"):
             agent_env_vars["ANTHROPIC_BASE_URL"] = api_config["base_url"]
-
-        # Get user's custom skills
-        custom_skills_content = ""
-        if skill_manager:
-            custom_skills_content = skill_manager.get_skills_for_agent(user_id)
 
         # Get user display name (prefer username, fallback to first_name)
         user_config = user_manager.get_user_config(user_id)

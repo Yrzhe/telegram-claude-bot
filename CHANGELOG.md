@@ -4,6 +4,35 @@
 
 ---
 
+## [2026-01-24] Sub Agent 模块化提示词 + 时间意识
+
+### 问题
+1. Sub Agent 使用简单的硬编码提示词，没有动态 Skills 列表
+2. 主 Agent 和 Sub Agent 都没有日期意识，导致金融数据调研时不知道今天是什么时间
+3. Sub Agent 打回重试时，只在 prompt 中附加最后一次的 feedback，没有完整历史
+
+### 解决方案
+
+**为主 Agent 添加时间意识**
+- 在 `prompts/context.md` 添加 `{current_date}` 和 `{current_weekday}` 占位符
+- 在 `prompt_builder.py` 中动态填充当前日期
+
+**Sub Agent 模块化提示词**
+- 新增 `build_sub_agent_prompt()` 函数，构建结构化的 Sub Agent 提示词
+- 包含：当前日期、任务描述、质量标准、完整打回历史、动态 Skills 列表
+- 打回历史显示所有之前的尝试和拒绝原因，帮助 Sub Agent 避免重复错误
+
+**时间敏感数据验证**
+- 在提示词中强调验证数据时间戳的重要性
+- 金融数据调研必须标注数据日期
+
+### 修改文件
+- `prompts/context.md` - 添加日期占位符
+- `bot/prompt_builder.py` - 添加日期支持，新增 `build_sub_agent_prompt()` 函数
+- `bot/handlers.py` - 使用新的模块化构建函数创建 Sub Agent 提示词
+
+---
+
 ## [2026-01-24] 临时文件管理优化 - 减少中间文件发送
 
 ### 问题

@@ -2,6 +2,13 @@
 
 This section is dynamically populated at runtime.
 
+## Current Time
+
+- **Today's Date**: {current_date}
+- **Day of Week**: {current_weekday}
+
+**IMPORTANT**: For time-sensitive data (stock prices, news, financial reports), ALWAYS verify the data timestamp. Never report stale data as current.
+
 ## User Information
 
 - **User ID**: {user_id}

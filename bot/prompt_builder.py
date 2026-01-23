@@ -3,10 +3,14 @@
 import logging
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 import yaml
 import re
 
 logger = logging.getLogger(__name__)
+
+# Weekday names
+WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 # Base directory for prompt modules
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
@@ -162,7 +166,14 @@ Previous Conversation Summary (IMPORTANT - Read this to understand context):
 This summary contains key information from our previous conversation that was compacted to save context space.
 Use this information to maintain continuity with the user."""
 
+        # Get current date info
+        now = datetime.now()
+        current_date = now.strftime('%Y-%m-%d')
+        current_weekday = WEEKDAY_NAMES[now.weekday()]
+
         # Replace placeholders
+        context = context.replace("{current_date}", current_date)
+        context = context.replace("{current_weekday}", current_weekday)
         context = context.replace("{user_id}", str(user_id))
         context = context.replace("{user_display_name}", user_display_name or "Unknown")
         context = context.replace("{working_directory}", working_directory)
@@ -210,3 +221,113 @@ User ID: {user_id}
 Working directory: {working_directory}
 
 Respond helpfully in the user's language."""
+
+
+def build_sub_agent_prompt(
+    task_description: str,
+    working_directory: str,
+    review_criteria: Optional[str] = None,
+    retry_history: Optional[list] = None,
+    custom_skills_content: Optional[str] = None
+) -> str:
+    """
+    Build system prompt for Sub Agent using modular components.
+
+    Args:
+        task_description: Description of the delegated task
+        working_directory: User's working directory path
+        review_criteria: Quality criteria for review (if any)
+        retry_history: List of previous retry attempts with feedback
+        custom_skills_content: User's custom skills content
+
+    Returns:
+        Complete system prompt for Sub Agent
+    """
+    sections = []
+
+    # 1. Sub Agent Identity
+    now = datetime.now()
+    current_date = now.strftime('%Y-%m-%d')
+    current_weekday = WEEKDAY_NAMES[now.weekday()]
+
+    identity = f"""# Sub Agent Identity
+
+You are a Sub Agent working on a delegated task. You work independently and report results back to the Main Agent.
+
+## Current Time
+
+- **Today's Date**: {current_date}
+- **Day of Week**: {current_weekday}
+
+**CRITICAL**: For time-sensitive data (stock prices, news, financial reports), ALWAYS verify the data timestamp. Never report stale data as current.
+
+## Your Task
+
+{task_description}"""
+
+    if review_criteria:
+        identity += f"""
+
+## Quality Criteria
+
+Your output will be reviewed against these criteria:
+{review_criteria}"""
+
+    sections.append(identity)
+
+    # 2. Retry History (if any)
+    if retry_history and len(retry_history) > 0:
+        history_section = """# Previous Attempts
+
+**IMPORTANT**: Learn from these previous failures. Do NOT repeat the same mistakes!
+
+"""
+        for i, entry in enumerate(retry_history, 1):
+            feedback = entry.get('feedback', 'No feedback')
+            history_section += f"""## Attempt {i}
+**Rejection Reason**: {feedback}
+
+"""
+        sections.append(history_section)
+
+    # 3. Skills (Dynamically loaded - same as main agent)
+    skills_intro = load_prompt_module("skills_intro")
+    if skills_intro:
+        available_skills = get_available_skills()
+        skills_list = format_skills_list(available_skills)
+        skills_intro = skills_intro.replace("{skills_list}", skills_list)
+        sections.append(skills_intro)
+
+    # 4. Sub Agent Rules
+    rules = """# Sub Agent Rules
+
+## File Operations
+
+- You can ONLY create/write files in these directories: reports/, analysis/, documents/, output/, temp/
+- Use temp/ for intermediate files that don't need to be sent
+- NEVER use /tmp, /var, or any system directory
+- Always use relative paths like "reports/my_report.txt", NOT absolute paths
+- NEVER show full system paths like /app/users/xxx - use relative paths only
+
+## Output Rules
+
+1. If you create report files, you MUST send them using send_telegram_file tool
+2. You cannot send text messages to users - only files
+3. After completing, return a comprehensive result summary
+4. For financial data, ALWAYS include the data date/timestamp in your report
+
+## Data Verification
+
+For research tasks involving time-sensitive data:
+1. Use Skills (akshare-stocks, akshare-a-shares, web-research) to get accurate data
+2. ALWAYS note when the data was retrieved
+3. Compare multiple sources when possible
+4. Flag any data that seems outdated or inconsistent"""
+
+    sections.append(rules)
+
+    # 5. Custom user skills (if any)
+    if custom_skills_content:
+        sections.append(f"# User Custom Skills\n\n{custom_skills_content}")
+
+    return "\n\n---\n\n".join(sections)
