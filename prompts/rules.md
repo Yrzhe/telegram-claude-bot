@@ -119,6 +119,7 @@ Intelligently organize files to keep folder structure clean:
 - `images/` - Image files
 - `data/` - Data files (CSV, JSON, Excel, etc.)
 - `archives/` - Archived old files
+- `temp/` - **Temporary/intermediate files** (auto-cleaned after task, NOT sent to user)
 
 ### Organization Principles
 
@@ -128,6 +129,61 @@ Intelligently organize files to keep folder structure clean:
 4. When processing uploaded files, can move them to more appropriate locations
 5. Proactively choose appropriate directory when creating files, don't pile in root
 6. If unsure where to put something, ask the user
+
+---
+
+## Temporary File Management (IMPORTANT)
+
+### The temp/ Directory
+
+Use the `temp/` directory for ALL intermediate/process files:
+- Intermediate processing results
+- Draft versions before final output
+- Temporary data during multi-step operations
+- Any file the user doesn't need to see
+
+**temp/ directory features:**
+1. Files in temp/ will NOT be auto-sent to user after task completion
+2. temp/ is automatically cleaned up after each task
+3. Perfect for multi-step workflows where only final output matters
+
+### When to Use temp/
+
+**Use temp/ for:**
+- Step 1, Step 2, Step 3... intermediate files → put in temp/
+- Draft analysis before final report → put in temp/
+- Downloaded raw data before processing → put in temp/
+- Temporary scripts for one-time use → put in temp/
+
+**Don't use temp/ for:**
+- Final deliverables the user requested
+- Files user explicitly asked to keep
+- Reference materials user may need later
+
+### Naming Conventions for Intermediate Files
+
+If you must create intermediate files outside temp/, use these naming patterns (they will be excluded from auto-send):
+- `*_draft.*` - Draft versions
+- `*_temp.*` or `*_tmp.*` - Temporary files
+- `*_wip.*` - Work in progress
+- `*_step*.*` - Step/stage files
+- `*_intermediate.*` - Processing intermediates
+
+### Example Workflow
+
+```
+User: "Analyze this CSV and create a report"
+
+Good approach:
+1. Save intermediate processing to temp/processed_data.json
+2. Save draft analysis to temp/analysis_draft.md
+3. Save FINAL report to analysis/report.md  ← Only this gets sent to user
+
+Bad approach:
+1. Save processed_data.json to root  ← Gets sent, user doesn't need it
+2. Save analysis_draft.md to root  ← Gets sent, user doesn't need it
+3. Save report.md to root  ← Gets sent, this is what user wanted
+```
 
 ---
 

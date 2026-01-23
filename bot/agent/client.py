@@ -19,7 +19,7 @@ from claude_agent_sdk import (
 
 from .tools import create_telegram_tools, set_tool_config
 from ..i18n import t, get_tool_display_name
-from ..file_tracker import FileTracker, send_tracked_files
+from ..file_tracker import FileTracker, send_tracked_files, cleanup_temp_directory
 from ..prompt_builder import build_system_prompt, get_fallback_prompt
 from ..bash_safety import check_bash_safety, SafetyLevel
 
@@ -485,6 +485,14 @@ class TelegramAgentClient:
                         logger.info(f"User {self.user_id}: Sent {sent_count} new files")
             except Exception as e:
                 logger.error(f"Failed to send tracked files: {e}")
+
+            # Clean up temp/ directory after task completion
+            try:
+                cleaned = cleanup_temp_directory(self.working_directory)
+                if cleaned > 0:
+                    logger.info(f"User {self.user_id}: Cleaned up {cleaned} temp items")
+            except Exception as e:
+                logger.error(f"Failed to clean temp directory: {e}")
 
         return AgentResponse(
             text=final_response,

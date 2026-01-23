@@ -19,7 +19,16 @@ EXCLUDED_EXTENSIONS = {
 EXCLUDED_DIRS = {
     '__pycache__', '.git', 'node_modules', '.venv',
     '.cache', '.pytest_cache', '.mypy_cache', 'venv',
-    'schedules'  # Don't send schedule config changes
+    'schedules',  # Don't send schedule config changes
+    'temp', 'tmp', 'working', 'cache',  # Temporary/intermediate files
+    'drafts',  # Draft files not ready for delivery
+}
+
+# Filename patterns to exclude (intermediate files)
+EXCLUDED_PATTERNS = {
+    '_draft', '_temp', '_tmp', '_wip',  # Draft/temp markers
+    '_step', '_intermediate',  # Process step markers
+    '.bak', '.backup',  # Backup files
 }
 
 # Max files before zipping
@@ -86,6 +95,12 @@ class FileTracker:
         # Check temp files (starting with ~)
         if path.name.startswith('~'):
             return True
+
+        # Check intermediate file patterns in filename (case-insensitive)
+        name_lower = path.stem.lower()  # filename without extension
+        for pattern in EXCLUDED_PATTERNS:
+            if pattern in name_lower:
+                return True
 
         return False
 
@@ -210,3 +225,39 @@ async def send_tracked_files(
                     pass
 
     return sent_count
+
+
+def cleanup_temp_directory(working_dir: Path) -> int:
+    """
+    Clean up the temp/ directory after task completion.
+
+    Args:
+        working_dir: User's working directory
+
+    Returns:
+        Number of files/directories deleted
+    """
+    temp_dir = Path(working_dir) / "temp"
+    if not temp_dir.exists():
+        return 0
+
+    deleted_count = 0
+    try:
+        # Delete all files and subdirectories in temp/
+        for item in temp_dir.iterdir():
+            try:
+                if item.is_file():
+                    item.unlink()
+                    deleted_count += 1
+                elif item.is_dir():
+                    import shutil
+                    shutil.rmtree(item)
+                    deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete temp item {item}: {e}")
+
+        logger.info(f"Cleaned up {deleted_count} items from temp/")
+    except Exception as e:
+        logger.error(f"Error cleaning temp directory: {e}")
+
+    return deleted_count
