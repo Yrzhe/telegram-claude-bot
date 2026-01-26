@@ -10,11 +10,11 @@ users/*
 !users/.gitkeep
 
 # ============================================
-# Claude Code 本地数据
+# Claude Code 本地数据和 Skills（不要公开）
 # ============================================
 claude_data/
-.claude/settings.local.json
-# Note: .claude/skills/ is tracked (contains project skills)
+.claude/
+CLAUDE.md
 
 # ============================================
 # 日志文件

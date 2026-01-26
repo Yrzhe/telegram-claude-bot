@@ -16,6 +16,8 @@ services:
       - ./logs:/app/logs
       # Claude 对话历史持久化（防止重建后失忆）
       - ./claude_data:/root/.claude
+      # Skills 目录（方便频繁更新）
+      - ./.claude/skills:/app/.claude/skills:ro
     environment:
       - TZ=Asia/Shanghai
       # API keys are loaded from config.json, no need to set here
