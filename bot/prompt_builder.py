@@ -275,18 +275,40 @@ Your output will be reviewed against these criteria:
 
     sections.append(identity)
 
-    # 2. Retry History (if any)
+    # 2. Retry History (if any) - Enhanced with suggestions and missing dimensions
     if retry_history and len(retry_history) > 0:
         history_section = """# Previous Attempts
 
-**IMPORTANT**: Learn from these previous failures. Do NOT repeat the same mistakes!
+**IMPORTANT**: Learn from these previous failures. Do NOT repeat the same mistakes! Each rejection includes specific improvement directions - follow them carefully.
 
 """
         for i, entry in enumerate(retry_history, 1):
             feedback = entry.get('feedback', 'No feedback')
-            history_section += f"""## Attempt {i}
-**Rejection Reason**: {feedback}
+            timestamp = entry.get('timestamp', 'N/A')
+            suggestions = entry.get('suggestions', [])
+            missing_dimensions = entry.get('missing_dimensions', [])
+            result_summary = entry.get('result_summary', '')
 
+            history_section += f"""## Attempt {i}
+**Time**: {timestamp}
+**Rejection Reason**: {feedback}
+"""
+            if missing_dimensions:
+                history_section += f"""
+**Missing Dimensions**:
+{chr(10).join('- ' + d for d in missing_dimensions)}
+"""
+            if suggestions:
+                history_section += f"""
+**Main Agent's Suggested Directions**:
+{chr(10).join('- ' + s for s in suggestions)}
+"""
+            if result_summary:
+                history_section += f"""
+**Previous Result Summary**: {result_summary[:300]}...
+"""
+            history_section += """
+---
 """
         sections.append(history_section)
 
@@ -301,6 +323,14 @@ Your output will be reviewed against these criteria:
     # 4. Sub Agent Rules
     rules = """# Sub Agent Rules
 
+## Core Principle: Deep Exploration
+
+As a Sub Agent, you must adopt an explorer's mindset:
+1. **Don't stay shallow** - Don't just list data, analyze "why"
+2. **Dig into anomalies** - Unusual points are often the most valuable
+3. **Data must be reliable** - Clear sources, cross-verify important data
+4. **Learn from rejections** - If there are previous attempts, address all issues
+
 ## File Operations
 
 - You can ONLY create/write files in these directories: reports/, analysis/, documents/, output/, temp/
@@ -314,15 +344,33 @@ Your output will be reviewed against these criteria:
 1. If you create report files, you MUST send them using send_telegram_file tool
 2. You cannot send text messages to users - only files
 3. After completing, return a comprehensive result summary
-4. For financial data, ALWAYS include the data date/timestamp in your report
+4. For time-sensitive data, ALWAYS include the data date/timestamp in your report
 
-## Data Verification
+## Data Verification Rules
 
-For research tasks involving time-sensitive data:
+For any research task:
 1. Use Skills (akshare-stocks, akshare-a-shares, web-research) to get accurate data
-2. ALWAYS note when the data was retrieved
-3. Compare multiple sources when possible
-4. Flag any data that seems outdated or inconsistent"""
+2. **MUST cite data sources and retrieval time**
+3. Cross-verify important data from multiple sources
+4. If data conflicts found, analyze reasons and state clearly
+5. Historical data must be clearly dated
+
+## Research Depth Requirements
+
+1. **Foundation level**: Collect relevant data and facts
+2. **Analysis level**: Analyze reasons and trends behind the data
+3. **Insight level**: Provide unique insights, discover unusual points
+4. **Recommendation level**: Give actionable suggestions
+
+Each research dimension should aim for the insight level, not stay at the foundation level.
+
+## Handling Rejections
+
+If you see "Previous Attempts":
+1. Carefully read the rejection reason from each attempt
+2. Pay special attention to "Missing Dimensions" and "Suggested Directions"
+3. This submission must address ALL previous issues
+4. Explore deeply in the new directions"""
 
     sections.append(rules)
 

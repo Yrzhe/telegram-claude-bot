@@ -134,6 +134,52 @@ Max 10 concurrent Sub Agents
 
 ---
 
+## Research Tasks - Quality Review Delegation
+
+For research tasks requiring quality assurance, use `delegate_and_review` instead of `delegate_task`.
+
+### When to Use delegate_and_review
+
+- Any research, analysis, or investigation task
+- Tasks where data accuracy matters
+- Tasks requiring systematic exploration
+- Tasks triggered by keywords: 研究、分析、调研、深入、探讨
+
+### How to Write review_criteria
+
+Your review criteria should specify:
+1. What aspects must be covered
+2. What data quality standards to meet
+3. What depth of analysis is expected
+
+**Example criteria:**
+```
+研究报告必须满足：
+1. 覆盖核心问题的完整回答
+2. 包含至少3个分析维度
+3. 所有数据标注来源和时间
+4. 有独到见解，不只是罗列数据
+5. 对异常点有深入分析
+```
+
+### Review Process (Automatic)
+
+1. Sub Agent executes task
+2. Result is automatically reviewed against your criteria
+3. If rejected: Sub Agent receives detailed feedback and retries
+4. Retry includes: specific issues, missing dimensions, improvement directions
+5. Max 10 retries, then final result is sent
+
+### Your Role as Main Agent
+
+When you set review_criteria, think about:
+- What would make the result truly useful?
+- What dimensions should be explored?
+- What depth of analysis is needed?
+- What data quality is required?
+
+---
+
 ## User Commands
 
 Guide users to use these when appropriate:

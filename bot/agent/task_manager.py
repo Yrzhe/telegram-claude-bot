@@ -53,12 +53,28 @@ class SubAgentTask:
         """Check if cancellation was requested"""
         return self._cancel_event.is_set()
 
-    def add_retry_history(self, result: str, feedback: str):
-        """Add a retry record to history"""
+    def add_retry_history(
+        self,
+        result: str,
+        feedback: str,
+        suggestions: List[str] = None,
+        missing_dimensions: List[str] = None
+    ):
+        """
+        Add a retry record to history with enhanced information.
+
+        Args:
+            result: The result that was rejected
+            feedback: Why it was rejected
+            suggestions: Specific directions to explore in next attempt
+            missing_dimensions: What aspects were missing
+        """
         self.retry_history.append({
             "attempt": self.retry_count,
-            "result": result[:2000] if len(result) > 2000 else result,
+            "result_summary": result[:500] if len(result) > 500 else result,
             "feedback": feedback,
+            "suggestions": suggestions or [],
+            "missing_dimensions": missing_dimensions or [],
             "timestamp": datetime.now().isoformat()
         })
 
@@ -395,16 +411,27 @@ _Task is running..._
                         try:
                             result_preview = result[:3000] if len(result) > 3000 else result
                             await send_progress_callback(
-                                f"📋 任务结果 [第{attempt_num}次/最多{max_attempts}次]\n\n{result_preview}"
+                                f"📋 Task Result [Attempt {attempt_num}/{max_attempts}]\n\n{result_preview}"
                             )
                         except Exception as e:
                             logger.error(f"Failed to send task result to user: {e}")
 
                         # Perform quality review
+                        suggestions = []
+                        missing_dimensions = []
                         try:
-                            passed, feedback = await review_callback(
+                            review_result = await review_callback(
                                 task_id, description, result, review_criteria, attempt_num
                             )
+                            # Handle both old (2-tuple) and new (4-tuple) callback signatures
+                            if isinstance(review_result, tuple):
+                                if len(review_result) == 4:
+                                    passed, feedback, suggestions, missing_dimensions = review_result
+                                else:
+                                    passed, feedback = review_result
+                                    suggestions, missing_dimensions = [], []
+                            else:
+                                passed, feedback = review_result, ""
                         except Exception as e:
                             logger.error(f"Review callback failed: {e}")
                             # If review fails, consider it passed to avoid infinite loop
@@ -421,7 +448,7 @@ _Task is running..._
 
                             # Send success notification
                             try:
-                                await send_progress_callback("✅ 任务审核通过！最终结果已在上方。")
+                                await send_progress_callback("✅ Task review passed! Final result is above.")
                             except Exception:
                                 pass
 
@@ -434,7 +461,12 @@ _Task is running..._
                             return
                         else:
                             # Review failed - retry if possible
-                            task.add_retry_history(result, feedback)
+                            task.add_retry_history(
+                                result,
+                                feedback,
+                                suggestions=suggestions,
+                                missing_dimensions=missing_dimensions
+                            )
                             task.retry_count += 1
 
                             if task.retry_count >= max_attempts:
@@ -447,7 +479,7 @@ _Task is running..._
 
                                 try:
                                     await send_progress_callback(
-                                        f"⚠️ 已达到最大重试次数({max_attempts}次)，返回最终结果。"
+                                        f"⚠️ Max retries reached ({max_attempts}), returning final result."
                                     )
                                 except Exception:
                                     pass
@@ -459,13 +491,18 @@ _Task is running..._
                                         logger.error(f"Task complete callback error: {cb_err}")
                                 return
                             else:
-                                # Send retry notification
+                                # Send retry notification with detailed guidance
                                 try:
-                                    await send_progress_callback(
-                                        f"🔄 第{task.retry_count}次打回\n"
-                                        f"问题：{feedback}\n"
-                                        f"正在重新执行..."
-                                    )
+                                    retry_msg = f"🔄 Rejected (Attempt {task.retry_count})\n\n"
+                                    retry_msg += f"Issue: {feedback}\n"
+                                    if missing_dimensions:
+                                        retry_msg += f"\nMissing dimensions: {', '.join(missing_dimensions)}\n"
+                                    if suggestions:
+                                        retry_msg += f"\nImprovement directions:\n"
+                                        for s in suggestions[:3]:  # Max 3 suggestions
+                                            retry_msg += f"  - {s}\n"
+                                    retry_msg += f"\nRetrying (Attempt {task.retry_count + 1}/{max_attempts})..."
+                                    await send_progress_callback(retry_msg)
                                 except Exception:
                                     pass
 
@@ -484,7 +521,7 @@ _Task is running..._
                         logger.error(f"Sub Agent task {task_id} failed: {e}")
 
                         try:
-                            await send_progress_callback(f"❌ 任务执行失败: {str(e)}")
+                            await send_progress_callback(f"❌ Task execution failed: {str(e)}")
                         except Exception:
                             pass
 

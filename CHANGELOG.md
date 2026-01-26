@@ -4,6 +4,66 @@
 
 ---
 
+## [2026-01-26] Deep Research System - Enhanced Research Task Quality
+
+### Problems
+1. Research tasks (especially financial research) had inconsistent data accuracy
+2. Research depth was insufficient, lacking systematic exploration mindset
+3. Rejection mechanism only had simple feedback, no guided improvement directions
+
+### Solution
+
+**New deep-research Skill**
+- Created `.claude/skills/deep-research/SKILL.md`
+- Auto-trigger: Detects keywords like "research", "analyze", "investigate", "deep dive"
+- Four-phase research flow: Planning → Data Collection → Deep Exploration → Comprehensive Report
+- Data verification rules: Multi-source cross-verification + mandatory timestamp annotation
+- Review checklist: Coverage, Depth, Data Quality, Logic
+
+**Enhanced ReviewAgent Review Mechanism**
+- Review prompt changed from simple PASS/REJECT to exploratory review
+- New output format: MISSING (missing dimensions), SUGGESTIONS (improvement directions)
+- ReviewResult structure enhanced with suggestions and missing_dimensions lists
+
+**Enhanced retry_history Structure**
+- Each rejection record includes: feedback, suggestions, missing_dimensions, result_summary
+- Sub Agent can see complete rejection context including:
+  - Rejection reasons from each previous attempt
+  - List of missing dimensions
+  - Main Agent's suggested exploration directions
+
+**Enhanced User Notification on Rejection**
+- Shows specific issues
+- Shows missing dimensions
+- Shows improvement direction suggestions
+- Shows current attempt count
+
+**Enhanced Sub Agent Rules**
+- Added core principle of deep exploration
+- Added research depth requirements (Foundation → Analysis → Insight → Recommendation levels)
+- Added guidance for handling rejections
+
+**Main Agent Tools Documentation Update**
+- Added "Research Tasks - Quality Review Delegation" section
+- Explained when to use delegate_and_review
+- Provided review_criteria writing guidance
+
+### Modified Files
+- `.claude/skills/deep-research/SKILL.md` - New deep research Skill
+- `bot/agent/review.py` - Enhanced review prompt and return structure
+- `bot/agent/task_manager.py` - Enhanced retry_history structure and rejection notifications
+- `bot/prompt_builder.py` - Enhanced Sub Agent prompt retry history display and rules
+- `prompts/tools.md` - Added research task review delegation documentation
+
+### Usage
+When user sends tasks containing keywords like "research", "analyze", the Agent will:
+1. Use deep-research skill to formulate research plan
+2. Use delegate_and_review to delegate to Sub Agent
+3. Automatically review results, provide specific improvement directions when rejecting
+4. Sub Agent improves based on rejection history, up to 10 iterations
+
+---
+
 ## [2026-01-24] Sub Agent 模块化提示词 + 时间意识
 
 ### 问题

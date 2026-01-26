@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from typing import Tuple, Optional
+import re
+from dataclasses import dataclass, field
+from typing import Tuple, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,8 @@ class ReviewResult:
     """Result of a review evaluation"""
     passed: bool
     feedback: str
+    suggestions: List[str] = field(default_factory=list)  # Specific directions to explore
+    missing_dimensions: List[str] = field(default_factory=list)  # What aspects were missing
 
 
 class ReviewAgent:
@@ -63,32 +66,68 @@ class ReviewAgent:
 
         # Truncate result if too long
         max_result_chars = 8000
-        result_text = result if len(result) <= max_result_chars else result[:max_result_chars] + "\n\n...[内容已截断]"
+        result_text = result if len(result) <= max_result_chars else result[:max_result_chars] + "\n\n...[truncated]"
 
-        # Build the review prompt
-        review_prompt = f"""你是一个任务质量审核员。请评估以下任务结果是否符合质量标准。
+        # Build retry history context
+        retry_context = ""
+        if attempt_number > 1:
+            retry_context = f"""
 
-## 任务描述
+## Previous Review History
+This is attempt {attempt_number}. Ensure issues from previous attempts have been addressed."""
+
+        # Build the review prompt - enhanced for deep research
+        review_prompt = f"""You are a research quality reviewer. Evaluate the result with an explorer's mindset.
+
+## Task Description
 {task_description}
 
-## 质量标准
+## Quality Criteria
 {criteria}
 
-## 当前结果（第 {attempt_number} 次尝试）
+## Current Result (Attempt {attempt_number})
 {result_text}
+{retry_context}
 
-## 评估要求
-请根据质量标准严格评估结果：
-1. 如果结果完全符合标准，返回 PASS
-2. 如果结果不符合标准，返回 REJECT 并详细说明问题和改进建议
+## Review Dimensions (Check All)
 
-## 输出格式
-请严格按以下格式输出：
+### 1. Coverage
+- Does it answer the core question?
+- Does it cover multiple analysis dimensions?
+- Are there obvious missing aspects?
 
-VERDICT: [PASS 或 REJECT]
-FEEDBACK: [如果 REJECT，说明具体问题和改进建议；如果 PASS，简短说明为何通过]"""
+### 2. Depth
+- Does the analysis stay at surface level?
+- Are anomalies or interesting points explored in depth?
+- Are there unique insights?
+- Does it ask "why"?
 
-        def _call_api() -> Tuple[bool, str]:
+### 3. Data Quality
+- Are data sources cited?
+- Is important data cross-verified?
+- Are timestamps clear?
+
+### 4. Logic
+- Are conclusions supported by data?
+- Is the reasoning sound?
+- Does it distinguish facts from inferences?
+
+## Evaluation Requirements
+
+If REJECT, you MUST provide:
+1. Which specific dimension is insufficient
+2. What content is missing
+3. What direction to improve
+4. Specific angles to explore
+
+## Output Format (Follow Strictly)
+
+VERDICT: [PASS or REJECT]
+FEEDBACK: [Specific problem description]
+MISSING: [Missing dimensions, comma-separated, e.g.: industry comparison,historical trends,risk analysis]
+SUGGESTIONS: [New directions to explore, comma-separated, e.g.: compare peer data,analyze 3-year trends,research analyst opinions]"""
+
+        def _call_api() -> Tuple[bool, str, List[str], List[str]]:
             """Synchronous API call (runs in thread pool)"""
             client_args = {"api_key": self.api_key}
             if self.base_url:
@@ -99,7 +138,7 @@ FEEDBACK: [如果 REJECT，说明具体问题和改进建议；如果 PASS，简
             try:
                 response = client.messages.create(
                     model=self.model,
-                    max_tokens=500,
+                    max_tokens=800,  # Increased for more detailed feedback
                     messages=[{
                         "role": "user",
                         "content": review_prompt
@@ -108,41 +147,76 @@ FEEDBACK: [如果 REJECT，说明具体问题和改进建议；如果 PASS，简
 
                 response_text = response.content[0].text
 
-                # Parse the response
+                # Parse suggestions
+                suggestions = []
+                if "SUGGESTIONS:" in response_text:
+                    suggestions_text = response_text.split("SUGGESTIONS:")[-1].strip()
+                    # Handle if there's content after SUGGESTIONS on the same line
+                    suggestions_line = suggestions_text.split("\n")[0].strip()
+                    if suggestions_line:
+                        suggestions = [s.strip() for s in suggestions_line.split(",") if s.strip()]
+
+                # Parse missing dimensions
+                missing_dimensions = []
+                if "MISSING:" in response_text:
+                    missing_text = response_text.split("MISSING:")[-1].strip()
+                    # Stop at SUGGESTIONS if present
+                    if "SUGGESTIONS:" in missing_text:
+                        missing_text = missing_text.split("SUGGESTIONS:")[0]
+                    missing_line = missing_text.split("\n")[0].strip()
+                    if missing_line:
+                        missing_dimensions = [m.strip() for m in missing_line.split(",") if m.strip()]
+
+                # Parse the verdict
                 if "VERDICT: PASS" in response_text or "VERDICT:PASS" in response_text:
                     # Extract feedback
                     feedback = ""
                     if "FEEDBACK:" in response_text:
-                        feedback = response_text.split("FEEDBACK:")[-1].strip()
-                    return True, feedback
+                        feedback_text = response_text.split("FEEDBACK:")[-1]
+                        # Stop at MISSING or SUGGESTIONS if present
+                        for stop_word in ["MISSING:", "SUGGESTIONS:"]:
+                            if stop_word in feedback_text:
+                                feedback_text = feedback_text.split(stop_word)[0]
+                        feedback = feedback_text.strip().split("\n")[0].strip()
+                    return True, feedback, [], []
 
                 elif "VERDICT: REJECT" in response_text or "VERDICT:REJECT" in response_text:
                     # Extract feedback
                     feedback = ""
                     if "FEEDBACK:" in response_text:
-                        feedback = response_text.split("FEEDBACK:")[-1].strip()
-                    return False, feedback or "结果不符合质量标准"
+                        feedback_text = response_text.split("FEEDBACK:")[-1]
+                        # Stop at MISSING or SUGGESTIONS if present
+                        for stop_word in ["MISSING:", "SUGGESTIONS:"]:
+                            if stop_word in feedback_text:
+                                feedback_text = feedback_text.split(stop_word)[0]
+                        feedback = feedback_text.strip().split("\n")[0].strip()
+                    return False, feedback or "Result does not meet quality standards", suggestions, missing_dimensions
 
                 else:
                     # Unclear response - default to pass to avoid infinite loops
                     logger.warning(f"Unclear review response: {response_text[:200]}")
-                    return True, "审核结果不明确，默认通过"
+                    return True, "Review result unclear, defaulting to pass", [], []
 
             except Exception as e:
                 logger.error(f"Review API call failed: {e}")
                 # On error, default to pass to avoid infinite loops
-                return True, f"审核过程出错: {str(e)}"
+                return True, f"Review error: {str(e)}", [], []
 
         try:
             # Run in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
-            passed, feedback = await loop.run_in_executor(None, _call_api)
-            return ReviewResult(passed=passed, feedback=feedback)
+            passed, feedback, suggestions, missing_dimensions = await loop.run_in_executor(None, _call_api)
+            return ReviewResult(
+                passed=passed,
+                feedback=feedback,
+                suggestions=suggestions,
+                missing_dimensions=missing_dimensions
+            )
 
         except Exception as e:
             logger.error(f"Review evaluation failed: {e}")
             # On error, default to pass to avoid infinite loops
-            return ReviewResult(passed=True, feedback=f"审核过程出错: {str(e)}")
+            return ReviewResult(passed=True, feedback=f"Review error: {str(e)}")
 
 
 async def create_review_callback(
@@ -169,7 +243,7 @@ async def create_review_callback(
         result: str,
         criteria: str,
         attempt: int
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, List[str], List[str]]:
         """
         Review callback for TaskManager.
 
@@ -181,7 +255,7 @@ async def create_review_callback(
             attempt: Current attempt number
 
         Returns:
-            Tuple of (passed, feedback)
+            Tuple of (passed, feedback, suggestions, missing_dimensions)
         """
         review_result = await review_agent.evaluate(
             task_description=description,
@@ -194,7 +268,17 @@ async def create_review_callback(
             f"Task {task_id} review (attempt {attempt}): "
             f"{'PASS' if review_result.passed else 'REJECT'}"
         )
+        if not review_result.passed:
+            logger.info(
+                f"Task {task_id} suggestions: {review_result.suggestions}, "
+                f"missing: {review_result.missing_dimensions}"
+            )
 
-        return review_result.passed, review_result.feedback
+        return (
+            review_result.passed,
+            review_result.feedback,
+            review_result.suggestions,
+            review_result.missing_dimensions
+        )
 
     return review_callback
