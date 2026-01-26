@@ -10,6 +10,8 @@ from typing import Optional, Callable, Awaitable, Any, Dict, List, Tuple
 from enum import Enum
 from datetime import datetime
 
+from ..file_tracker import FileTracker, send_tracked_files
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,19 +99,25 @@ class TaskManager:
         self,
         user_id: int,
         on_task_complete: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
-        working_directory: Optional[str] = None
+        working_directory: Optional[str] = None,
+        send_file_callback: Optional[Callable[[str, Optional[str]], Awaitable[bool]]] = None,
+        send_message_callback: Optional[Callable[[str], Awaitable[None]]] = None
     ):
         """
         Args:
             user_id: User ID
             on_task_complete: Callback(task_id, description, result) called when task completes
             working_directory: User's working directory for task documents
+            send_file_callback: Callback to send files to user
+            send_message_callback: Callback to send messages to user
         """
         self.user_id = user_id
         self._tasks: Dict[str, SubAgentTask] = {}
         self._lock = asyncio.Lock()
         self._on_task_complete = on_task_complete
         self._working_directory = Path(working_directory) if working_directory else None
+        self._send_file_callback = send_file_callback
+        self._send_message_callback = send_message_callback
 
     def _get_running_tasks_dir(self) -> Optional[Path]:
         """Get the running_tasks directory"""
@@ -126,6 +134,43 @@ class TaskManager:
         completed_dir = self._working_directory / "data" / "completed_tasks"
         completed_dir.mkdir(parents=True, exist_ok=True)
         return completed_dir
+
+    async def _send_task_files(self, tracker: FileTracker) -> Tuple[int, List[str]]:
+        """
+        Send files created during task execution to user.
+
+        Args:
+            tracker: FileTracker that tracked files during execution
+
+        Returns:
+            Tuple of (files_sent_count, list_of_relative_paths)
+        """
+        if not self._send_file_callback or not self._working_directory:
+            return 0, []
+
+        new_files = tracker.get_new_files()
+        if not new_files:
+            return 0, []
+
+        # Get relative paths for result message
+        relative_paths = []
+        for f in new_files:
+            try:
+                rel = f.relative_to(self._working_directory)
+                relative_paths.append(str(rel))
+            except ValueError:
+                relative_paths.append(f.name)
+
+        # Send files to user
+        sent_count = await send_tracked_files(
+            files=new_files,
+            working_dir=self._working_directory,
+            send_file_callback=self._send_file_callback,
+            send_message_callback=self._send_message_callback
+        )
+
+        logger.info(f"Sent {sent_count} task files to user {self.user_id}")
+        return sent_count, relative_paths
 
     def _create_task_document(self, task: SubAgentTask, prompt: str = "") -> Optional[Path]:
         """Create a task document in running_tasks folder"""
@@ -290,6 +335,13 @@ _Task is running..._
             # Start the task in background
             async def run_task():
                 task.status = TaskStatus.RUNNING
+
+                # Create file tracker to detect files created during execution
+                tracker = None
+                if self._working_directory and self._send_file_callback:
+                    tracker = FileTracker(self._working_directory)
+                    tracker.start()
+
                 try:
                     if task.is_cancel_requested():
                         task.status = TaskStatus.CANCELLED
@@ -302,9 +354,25 @@ _Task is running..._
                         task.status = TaskStatus.CANCELLED
                         self._update_task_document(task, error="Task cancelled")
                     else:
+                        # Send any files created during execution
+                        files_sent = 0
+                        file_paths = []
+                        if tracker:
+                            try:
+                                files_sent, file_paths = await self._send_task_files(tracker)
+                            except Exception as e:
+                                logger.error(f"Failed to send task files: {e}")
+
+                        # Append file info to result if files were sent
+                        if files_sent > 0 and file_paths:
+                            file_list = ", ".join(file_paths[:5])
+                            if len(file_paths) > 5:
+                                file_list += f" (+{len(file_paths) - 5} more)"
+                            result = f"{result}\n\n📎 Generated Files ({files_sent}): {file_list}"
+
                         task.result = result
                         task.status = TaskStatus.COMPLETED
-                        logger.info(f"Sub Agent task {task_id} completed")
+                        logger.info(f"Sub Agent task {task_id} completed (sent {files_sent} files)")
 
                         # Update and move task document to completed_tasks
                         self._update_task_document(task, result=result)
@@ -390,8 +458,17 @@ _Task is running..._
                 task.status = TaskStatus.RUNNING
                 max_attempts = task.max_retries
 
+                # Create file tracker (reset at each attempt)
+                tracker = None
+                if self._working_directory and self._send_file_callback:
+                    tracker = FileTracker(self._working_directory)
+
                 while task.retry_count < max_attempts:
                     attempt_num = task.retry_count + 1
+
+                    # Reset tracker at start of each attempt
+                    if tracker:
+                        tracker.start()
 
                     try:
                         if task.is_cancel_requested():
@@ -409,7 +486,7 @@ _Task is running..._
 
                         # Send current result to user
                         try:
-                            result_preview = result[:3000] if len(result) > 3000 else result
+                            result_preview = result[:8000] if len(result) > 8000 else result
                             await send_progress_callback(
                                 f"📋 Task Result [Attempt {attempt_num}/{max_attempts}]\n\n{result_preview}"
                             )
@@ -438,10 +515,26 @@ _Task is running..._
                             passed, feedback = True, ""
 
                         if passed:
+                            # Send any files created during execution
+                            files_sent = 0
+                            file_paths = []
+                            if tracker:
+                                try:
+                                    files_sent, file_paths = await self._send_task_files(tracker)
+                                except Exception as e:
+                                    logger.error(f"Failed to send task files: {e}")
+
+                            # Append file info to result if files were sent
+                            if files_sent > 0 and file_paths:
+                                file_list = ", ".join(file_paths[:5])
+                                if len(file_paths) > 5:
+                                    file_list += f" (+{len(file_paths) - 5} more)"
+                                result = f"{result}\n\n📎 Generated Files ({files_sent}): {file_list}"
+
                             # Review passed - complete the task
                             task.result = result
                             task.status = TaskStatus.COMPLETED
-                            logger.info(f"Sub Agent task {task_id} passed review on attempt {attempt_num}")
+                            logger.info(f"Sub Agent task {task_id} passed review on attempt {attempt_num} (sent {files_sent} files)")
 
                             # Update and move task document to completed_tasks
                             self._update_task_document(task, result=result)
@@ -470,10 +563,26 @@ _Task is running..._
                             task.retry_count += 1
 
                             if task.retry_count >= max_attempts:
+                                # Send any files created during execution
+                                files_sent = 0
+                                file_paths = []
+                                if tracker:
+                                    try:
+                                        files_sent, file_paths = await self._send_task_files(tracker)
+                                    except Exception as e:
+                                        logger.error(f"Failed to send task files: {e}")
+
+                                # Append file info to result if files were sent
+                                if files_sent > 0 and file_paths:
+                                    file_list = ", ".join(file_paths[:5])
+                                    if len(file_paths) > 5:
+                                        file_list += f" (+{len(file_paths) - 5} more)"
+                                    result = f"{result}\n\n📎 Generated Files ({files_sent}): {file_list}"
+
                                 # Max retries reached - send final result anyway
                                 task.result = result
                                 task.status = TaskStatus.COMPLETED
-                                logger.warning(f"Sub Agent task {task_id} reached max retries ({max_attempts})")
+                                logger.warning(f"Sub Agent task {task_id} reached max retries ({max_attempts}), sent {files_sent} files")
 
                                 self._update_task_document(task, result=result)
 

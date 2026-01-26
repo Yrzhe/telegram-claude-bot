@@ -4,6 +4,52 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-01-27] Sub Agent File Delivery Fix
+
+### Problem
+When Sub Agents complete tasks that generate files (reports/, analysis/), the files were never sent to users:
+1. Sub Agent saves files to allowed directories
+2. TaskManager sends text result (truncated to 3000 chars)
+3. Files are never delivered - no mechanism existed to detect and send them
+
+### Solution
+Integrated FileTracker into TaskManager to automatically send generated files:
+
+1. **File Tracking**: Create FileTracker before task execution, detect new/modified files after completion
+2. **Automatic File Delivery**: Send files to user via send_file_callback
+3. **Result Enhancement**: Append file list to result for Main Agent awareness
+4. **Increased Truncation Limit**: 3000 → 8000 characters for result preview
+
+### Modified Files
+- `bot/agent/task_manager.py`
+  - Added `send_file_callback` and `send_message_callback` parameters to `__init__`
+  - Added `_send_task_files()` method using FileTracker
+  - Updated `run_task()` and `run_task_with_review()` to track and send files
+  - Increased truncation limit from 3000 to 8000 characters
+- `bot/handlers.py`
+  - Updated `get_task_manager()` to pass file callbacks to TaskManager
+- `bot/i18n.py`
+  - Updated `SYNTHESIZE_RESULTS_PROMPT` to mention files were auto-sent
+
+### Code Flow After Fix
+```
+Sub Agent executes
+    ↓
+FileTracker.start() [before execution]
+    ↓
+Files created in reports/, analysis/
+    ↓
+FileTracker.get_new_files() [after execution]
+    ↓
+_send_task_files() → Files sent to user
+    ↓
+Result includes: "📎 Generated Files (2): reports/analysis.md, ..."
+    ↓
+Main Agent synthesizes and acknowledges files
+```
+
+---
+
 ## [2026-01-26] Fix Sub Agent Attempting to Use Unauthorized Tools
 
 ### Problem

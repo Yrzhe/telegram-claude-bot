@@ -356,6 +356,8 @@ def setup_handlers(
 
     def get_task_manager(user_id: int, bot=None) -> TaskManager:
         """Get or create TaskManager for user"""
+        nonlocal message_queue_manager
+
         if user_id not in task_managers:
             # Callback when Sub Agent completes - just log, don't send to user
             # Main agent should use get_task_result to retrieve and present results
@@ -365,10 +367,21 @@ def setup_handlers(
 
             # Get user's working directory for task documents
             user_data_path = user_manager.get_user_data_path(user_id)
+
+            # Initialize message queue manager if not already done
+            send_file_callback = None
+            send_message_callback = None
+            if bot:
+                if message_queue_manager is None:
+                    message_queue_manager = MessageQueueManager(bot)
+                send_message_callback, send_file_callback = message_queue_manager.get_callbacks(user_id, user_data_path)
+
             task_managers[user_id] = TaskManager(
                 user_id,
                 on_task_complete=on_task_complete,
-                working_directory=str(user_data_path)
+                working_directory=str(user_data_path),
+                send_file_callback=send_file_callback,
+                send_message_callback=send_message_callback
             )
         return task_managers[user_id]
 

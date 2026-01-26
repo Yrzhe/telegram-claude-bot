@@ -305,7 +305,7 @@ Please help the user process this file. If it's a document (PDF, Word, TXT, etc.
     MESSAGE_MERGED: str = "Received new message, merging with previous..."
     WAITING_SUB_AGENTS: str = "Working on {count} background tasks..."
     SUB_AGENT_RESULTS_HEADER: str = "Background task results:"
-    SYNTHESIZE_RESULTS_PROMPT: str = "Please synthesize the following background task results and provide a comprehensive response to the user:\n\n{results}"
+    SYNTHESIZE_RESULTS_PROMPT: str = "Please synthesize the following background task results and provide a comprehensive response to the user. Note: Any files generated during task execution have been automatically sent to the user.\n\n{results}"
     DELEGATE_TASK_CREATED: str = "Task delegated (ID: {task_id}): {description}"
     DELEGATE_REVIEW_TASK_CREATED: str = "Review task created (ID: {task_id}): {description}\n\nThis task will be automatically reviewed after completion. You'll receive progress updates."
     DELEGATE_TASK_LIMIT: str = "Cannot create more background tasks (limit: {limit})"
