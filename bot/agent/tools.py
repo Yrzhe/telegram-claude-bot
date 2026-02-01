@@ -1798,7 +1798,8 @@ Parameters:
                 "related_to": related_to
             }
 
-            data["memories"].append(memory)
+            # Insert at the beginning so newest memories appear first in file
+            data["memories"].insert(0, memory)
 
             if _save_memories(data):
                 return {

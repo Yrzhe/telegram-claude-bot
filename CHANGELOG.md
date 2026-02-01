@@ -4,6 +4,20 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-01] Memory Storage Order - Newest First
+
+### Overview
+Changed memories.json storage order so newest memories appear at the top of the file for easier viewing.
+
+### Changes
+- Modified `memory_save` in `bot/agent/tools.py` to insert new memories at the beginning of the list instead of appending
+- New memories now appear first when viewing the raw JSON file
+
+### Modified Files
+- `bot/agent/tools.py` - Changed `append()` to `insert(0, ...)` for memory storage
+
+---
+
 ## [2026-02-01] Proactive Memory System
 
 ### Overview
