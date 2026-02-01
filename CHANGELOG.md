@@ -4,6 +4,53 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-01] Multi-Task Handling & Time-Bound Task Parsing
+
+### Problem 1: Agent couldn't handle multiple tasks in one message
+Previous rule was too strict: "After calling delegate_task, STOP immediately"
+This prevented Agent from:
+- Delegating a research task AND creating a scheduled reminder
+- Handling multiple independent tasks in one user message
+
+### Solution 1: Multi-Task Handling
+Updated `prompts/tools.md` to allow handling multiple tasks:
+- Agent can now call multiple tools (delegate_task + schedule_create, etc.)
+- Must still send only ONE final summary message
+- Cannot wait for delegated tasks or check status immediately
+
+### Problem 2: Time-bound task misunderstanding
+Agent misunderstood complex time-bound user requests:
+- User: "晚上提醒我调研一下中兴通讯吧，你可以先给一些资料给我"
+- Wrong interpretation: Execute research NOW + set separate reminder for tonight (failed)
+- Correct interpretation: Schedule a research task for tonight that will notify user when complete
+
+Issues identified:
+1. **Semantic misunderstanding**: "晚上提醒我调研X" should mean "schedule research for tonight" not "research now + remind tonight"
+2. **Task discontinuity**: When scheduled task creation failed, Agent gave up instead of retrying or offering alternatives
+3. **No clarification mechanism**: Agent didn't ask for clarification on ambiguous time instructions
+
+### Solution
+Created new prompt module `prompts/task_understanding.md` with:
+
+1. **Time-Bound Task Patterns**: Clear rules for parsing "时间 + 提醒我 + 动作" patterns
+2. **Task Failure Recovery**: Guidelines to retry failed tasks or offer alternatives
+3. **Clarification Rules**: When to ask user vs when to assume
+4. **Multi-Step Task Handling**: How to chain dependent tasks correctly
+5. **Default Time Mappings**: "晚上" → 20:00, "下午" → 15:00, etc.
+
+### Modified Files
+- `prompts/task_understanding.md` (NEW) - Task understanding rules and patterns
+- `prompts/tools.md` - Updated Sub Agent rules to allow multi-task handling
+- `bot/prompt_builder.py` - Added task_understanding module to system prompt assembly
+
+### Key Improvements
+- Agent can now handle multiple tasks in one message (e.g., delegate + schedule)
+- Agent will now correctly interpret "晚上提醒我调研X" as a single scheduled task
+- When task creation fails, Agent will retry or offer alternatives
+- Agent will ask for clarification on ambiguous requests before acting
+
+---
+
 ## [2026-01-27] Sub Agent File Delivery Fix
 
 ### Problem
