@@ -192,12 +192,17 @@ Use this information to maintain continuity with the user."""
     if task_understanding:
         sections.append(task_understanding)
 
-    # 5. Tools (Available capabilities)
+    # 5. Memory (Proactive learning and recall)
+    memory = load_prompt_module("memory")
+    if memory:
+        sections.append(memory)
+
+    # 6. Tools (Available capabilities)
     tools = load_prompt_module("tools")
     if tools:
         sections.append(tools)
 
-    # 6. Skills (Dynamically loaded)
+    # 7. Skills (Dynamically loaded)
     skills_intro = load_prompt_module("skills_intro")
     if skills_intro:
         # Get available skills and format them
@@ -206,12 +211,12 @@ Use this information to maintain continuity with the user."""
         skills_intro = skills_intro.replace("{skills_list}", skills_list)
         sections.append(skills_intro)
 
-    # 7. Additional sections (if any)
+    # 8. Additional sections (if any)
     if additional_sections:
         for section_name, content in additional_sections.items():
             sections.append(f"# {section_name}\n\n{content}")
 
-    # 8. Custom user skills (if any)
+    # 9. Custom user skills (if any)
     if custom_skills_content:
         sections.append(f"# User Custom Skills\n\n{custom_skills_content}")
 

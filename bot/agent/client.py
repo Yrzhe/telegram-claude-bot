@@ -302,6 +302,11 @@ class TelegramAgentClient:
                 "mcp__telegram__schedule_create",
                 "mcp__telegram__schedule_update",
                 "mcp__telegram__schedule_delete",
+                # Memory tools
+                "mcp__telegram__memory_save",
+                "mcp__telegram__memory_search",
+                "mcp__telegram__memory_list",
+                "mcp__telegram__memory_delete",
                 # Custom command management tools
                 "mcp__telegram__custom_command_list",
                 "mcp__telegram__custom_command_get",

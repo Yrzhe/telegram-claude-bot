@@ -1672,6 +1672,363 @@ Parameters:
                 "is_error": True
             }
 
+    # ==================== Memory Tools ====================
+
+    def _get_memories_path() -> Path:
+        """Get the path to user's memories.json file"""
+        if not _working_directory:
+            return Path()
+        return _working_directory / "memories.json"
+
+    def _load_memories() -> dict:
+        """Load memories from file"""
+        path = _get_memories_path()
+        if path.exists():
+            try:
+                import json
+                with open(path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load memories: {e}")
+        return {"memories": [], "last_updated": None}
+
+    def _save_memories(data: dict) -> bool:
+        """Save memories to file"""
+        path = _get_memories_path()
+        try:
+            import json
+            from datetime import datetime
+            data["last_updated"] = datetime.now().isoformat()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save memories: {e}")
+            return False
+
+    @tool(
+        "memory_save",
+        """Save a new memory about the user. Use this proactively when you learn important information.
+
+Parameters:
+- content: The memory content (what you learned about the user)
+- category: One of: personal, family, career, education, interests, preferences, goals, finance, health, schedule, context
+- source_type: "explicit" (user directly said) or "inferred" (you deduced from context)
+- tags: Comma-separated keywords for searching (e.g., "工作,腾讯,产品")
+- valid_from: Optional date when this became true (YYYY-MM-DD), defaults to today
+- related_to: Optional comma-separated memory IDs this relates to""",
+        {"content": str, "category": str, "source_type": str, "tags": str, "valid_from": str, "related_to": str}
+    )
+    async def memory_save(args: dict[str, Any]) -> dict[str, Any]:
+        """Save a new memory about the user"""
+        content = args.get("content", "").strip()
+        category = args.get("category", "context").strip()
+        source_type = args.get("source_type", "inferred").strip()
+        tags_str = args.get("tags", "").strip()
+        valid_from = args.get("valid_from", "").strip()
+        related_to_str = args.get("related_to", "").strip()
+
+        if not _working_directory:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        if not content:
+            return {
+                "content": [{"type": "text", "text": "Error: content is required"}],
+                "is_error": True
+            }
+
+        valid_categories = [
+            "personal", "family", "career", "education", "interests",
+            "preferences", "goals", "finance", "health", "schedule", "context"
+        ]
+        if category not in valid_categories:
+            return {
+                "content": [{"type": "text", "text": f"Error: category must be one of: {', '.join(valid_categories)}"}],
+                "is_error": True
+            }
+
+        if source_type not in ["explicit", "inferred"]:
+            return {
+                "content": [{"type": "text", "text": "Error: source_type must be 'explicit' or 'inferred'"}],
+                "is_error": True
+            }
+
+        try:
+            from datetime import datetime
+            import uuid
+
+            # Generate memory ID
+            now = datetime.now()
+            mem_id = f"mem_{now.strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}"
+
+            # Parse tags
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+
+            # Parse related_to
+            related_to = [r.strip() for r in related_to_str.split(",") if r.strip()] if related_to_str else []
+
+            # Default valid_from to today
+            if not valid_from:
+                valid_from = now.strftime("%Y-%m-%d")
+
+            # Load existing memories
+            data = _load_memories()
+
+            # Check for duplicate content (simple text match)
+            for existing in data["memories"]:
+                if existing["content"] == content:
+                    return {
+                        "content": [{"type": "text", "text": f"Memory already exists with ID: {existing['id']}"}]
+                    }
+
+            # Create new memory
+            memory = {
+                "id": mem_id,
+                "content": content,
+                "category": category,
+                "source_type": source_type,
+                "tags": tags,
+                "created_at": now.isoformat(),
+                "valid_from": valid_from,
+                "valid_until": None,
+                "related_to": related_to
+            }
+
+            data["memories"].append(memory)
+
+            if _save_memories(data):
+                return {
+                    "content": [{"type": "text", "text": f"Memory saved: {mem_id}\nCategory: {category}\nContent: {content}"}]
+                }
+            else:
+                return {
+                    "content": [{"type": "text", "text": "Failed to save memory to file"}],
+                    "is_error": True
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to save memory: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to save memory: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "memory_search",
+        """Search user's memories by keyword or category.
+
+Parameters:
+- query: Optional keyword to search in content and tags
+- category: Optional category filter (personal, family, career, education, interests, preferences, goals, finance, health, schedule, context)
+- limit: Maximum results to return (default: 10)""",
+        {"query": str, "category": str, "limit": int}
+    )
+    async def memory_search(args: dict[str, Any]) -> dict[str, Any]:
+        """Search user's memories"""
+        query = args.get("query", "").strip().lower()
+        category = args.get("category", "").strip()
+        limit = args.get("limit", 10)
+
+        if not _working_directory:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        try:
+            data = _load_memories()
+            memories = data.get("memories", [])
+
+            if not memories:
+                return {
+                    "content": [{"type": "text", "text": "No memories found. Start learning about the user!"}]
+                }
+
+            # Filter by category
+            if category:
+                memories = [m for m in memories if m.get("category") == category]
+
+            # Filter by query (search in content and tags)
+            if query:
+                def matches(m):
+                    if query in m.get("content", "").lower():
+                        return True
+                    for tag in m.get("tags", []):
+                        if query in tag.lower():
+                            return True
+                    return False
+                memories = [m for m in memories if matches(m)]
+
+            # Sort by created_at (newest first)
+            memories.sort(key=lambda m: m.get("created_at", ""), reverse=True)
+
+            # Limit results
+            memories = memories[:limit]
+
+            if not memories:
+                filter_desc = []
+                if query:
+                    filter_desc.append(f"query='{query}'")
+                if category:
+                    filter_desc.append(f"category='{category}'")
+                return {
+                    "content": [{"type": "text", "text": f"No memories found matching: {', '.join(filter_desc)}"}]
+                }
+
+            # Format output
+            output = f"Found {len(memories)} memories:\n\n"
+            for m in memories:
+                output += f"[{m['id']}] ({m['category']})\n"
+                output += f"  {m['content']}\n"
+                if m.get("tags"):
+                    output += f"  Tags: {', '.join(m['tags'])}\n"
+                output += f"  Source: {m['source_type']} | From: {m['valid_from']}\n"
+                if m.get("related_to"):
+                    output += f"  Related: {', '.join(m['related_to'])}\n"
+                output += "\n"
+
+            return {"content": [{"type": "text", "text": output}]}
+
+        except Exception as e:
+            logger.error(f"Failed to search memories: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to search memories: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "memory_list",
+        """List all memories in a category as a timeline. Useful for seeing the full history of career, education, etc.
+
+Parameters:
+- category: Required. One of: personal, family, career, education, interests, preferences, goals, finance, health, schedule, context""",
+        {"category": str}
+    )
+    async def memory_list(args: dict[str, Any]) -> dict[str, Any]:
+        """List all memories in a category as a timeline"""
+        category = args.get("category", "").strip()
+
+        if not _working_directory:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        if not category:
+            return {
+                "content": [{"type": "text", "text": "Error: category is required"}],
+                "is_error": True
+            }
+
+        valid_categories = [
+            "personal", "family", "career", "education", "interests",
+            "preferences", "goals", "finance", "health", "schedule", "context"
+        ]
+        if category not in valid_categories:
+            return {
+                "content": [{"type": "text", "text": f"Error: category must be one of: {', '.join(valid_categories)}"}],
+                "is_error": True
+            }
+
+        try:
+            data = _load_memories()
+            memories = [m for m in data.get("memories", []) if m.get("category") == category]
+
+            if not memories:
+                return {
+                    "content": [{"type": "text", "text": f"No memories found in category '{category}'"}]
+                }
+
+            # Sort by valid_from (oldest first for timeline view)
+            memories.sort(key=lambda m: m.get("valid_from", ""))
+
+            output = f"Timeline for '{category}' ({len(memories)} memories):\n\n"
+            for m in memories:
+                valid_from = m.get("valid_from", "Unknown")
+                valid_until = m.get("valid_until")
+                time_range = valid_from
+                if valid_until:
+                    time_range += f" → {valid_until}"
+                else:
+                    time_range += " → present"
+
+                output += f"[{time_range}]\n"
+                output += f"  {m['content']}\n"
+                output += f"  ID: {m['id']} | Source: {m['source_type']}\n"
+                if m.get("related_to"):
+                    output += f"  Related: {', '.join(m['related_to'])}\n"
+                output += "\n"
+
+            return {"content": [{"type": "text", "text": output}]}
+
+        except Exception as e:
+            logger.error(f"Failed to list memories: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to list memories: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "memory_delete",
+        """Delete a specific memory by ID. Use when user asks to forget something or when correcting errors.
+
+Parameters:
+- memory_id: The memory ID to delete (e.g., "mem_20260201_abc123")""",
+        {"memory_id": str}
+    )
+    async def memory_delete(args: dict[str, Any]) -> dict[str, Any]:
+        """Delete a memory by ID"""
+        memory_id = args.get("memory_id", "").strip()
+
+        if not _working_directory:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        if not memory_id:
+            return {
+                "content": [{"type": "text", "text": "Error: memory_id is required"}],
+                "is_error": True
+            }
+
+        try:
+            data = _load_memories()
+            memories = data.get("memories", [])
+
+            # Find and remove the memory
+            original_count = len(memories)
+            memories = [m for m in memories if m.get("id") != memory_id]
+
+            if len(memories) == original_count:
+                return {
+                    "content": [{"type": "text", "text": f"Memory '{memory_id}' not found"}],
+                    "is_error": True
+                }
+
+            data["memories"] = memories
+
+            if _save_memories(data):
+                return {
+                    "content": [{"type": "text", "text": f"Memory deleted: {memory_id}"}]
+                }
+            else:
+                return {
+                    "content": [{"type": "text", "text": "Failed to save changes"}],
+                    "is_error": True
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to delete memory: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to delete memory: {str(e)}"}],
+                "is_error": True
+            }
+
     @tool(
         "custom_command_list_media",
         "List all media files for a random_media type command with their statistics.",
@@ -1748,6 +2105,10 @@ Parameters:
         schedule_create,
         schedule_update,
         schedule_delete,
+        memory_save,
+        memory_search,
+        memory_list,
+        memory_delete,
         custom_command_list,
         custom_command_get,
         custom_command_create,

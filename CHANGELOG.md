@@ -4,6 +4,56 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-01] Proactive Memory System
+
+### Overview
+Added a proactive memory system that allows the Agent to automatically learn and remember important information about users without requiring explicit "remember this" commands.
+
+### New Features
+
+**Memory Tools** (4 new tools):
+- `memory_save` - Save new memories with category, tags, and timeline support
+- `memory_search` - Search memories by keyword or category
+- `memory_list` - View full timeline of a category (e.g., career history)
+- `memory_delete` - Remove memories when user asks to forget
+
+**Memory Categories**:
+- personal, family, career, education, interests
+- preferences, goals, finance, health, schedule, context
+
+**Memory Structure** (memories.json):
+```json
+{
+  "id": "mem_20260201_abc123",
+  "content": "用户在字节跳动做产品总监",
+  "category": "career",
+  "source_type": "explicit",  // or "inferred"
+  "tags": ["工作", "字节跳动"],
+  "valid_from": "2026-02-01",
+  "valid_until": null,
+  "related_to": ["mem_xxx"]   // timeline links
+}
+```
+
+**Proactive Learning**:
+- Agent identifies important info during conversation
+- Saves without waiting for "remember this" command
+- Handles timeline changes (job changes are not contradictions)
+- Asks user when real contradictions detected
+
+### Modified Files
+- `prompts/memory.md` (NEW) - Proactive memory guidelines
+- `bot/agent/tools.py` - Added 4 memory tools
+- `bot/agent/client.py` - Added memory tools to allowed_tools
+- `bot/prompt_builder.py` - Integrated memory module
+
+### Storage
+- Location: `users/{user_id}/data/memories.json`
+- Supports timeline queries (see career/education history)
+- Automatic deduplication
+
+---
+
 ## [2026-02-01] Multi-Task Handling & Time-Bound Task Parsing
 
 ### Problem 1: Agent couldn't handle multiple tasks in one message
