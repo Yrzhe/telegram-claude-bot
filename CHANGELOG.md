@@ -4,6 +4,27 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-01] Fix Duplicate Message Sending
+
+### Overview
+Fixed issue where the bot would send the same response twice when the Agent uses `send_telegram_message` tool.
+
+### Problem
+When Agent uses `send_telegram_message` tool to reply, the message was sent twice:
+1. First via the tool itself
+2. Then again via `handlers.py` sending `response.text`
+
+### Solution
+- Added `message_sent` flag to `AgentResponse` dataclass
+- Track when `send_telegram_message` tool is used during processing
+- Skip sending `response.text` if message was already sent via tool
+
+### Modified Files
+- `bot/agent/client.py` - Added `message_sent` tracking in AgentResponse and process_message
+- `bot/handlers.py` - Added `and not response.message_sent` checks before sending response
+
+---
+
 ## [2026-02-01] Memory Storage Order - Newest First
 
 ### Overview

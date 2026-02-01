@@ -2109,7 +2109,7 @@ Session Statistics:
 
                     await thinking_msg.delete()
 
-                    if response.text:
+                    if response.text and not response.message_sent:
                         await send_long_message(update, response.text)
 
                 except ValueError:
@@ -2572,8 +2572,8 @@ Session Statistics:
             # Delete progress message
             await thinking_msg.delete()
 
-            # Send final response
-            if response.text:
+            # Send final response (skip if agent already sent via tool)
+            if response.text and not response.message_sent:
                 await send_long_message(update, response.text)
 
         except Exception as e:
@@ -2609,7 +2609,7 @@ Session Statistics:
                     )
                     await typing.stop()
                     await thinking_msg.delete()
-                    if response.text:
+                    if response.text and not response.message_sent:
                         await send_long_message(update, response.text)
                     return
                 except Exception as retry_error:
@@ -2801,8 +2801,8 @@ Session Statistics:
             # 删除进度消息
             await thinking_msg.delete()
 
-            # 发送回复
-            if response.text:
+            # 发送回复 (skip if agent already sent via tool)
+            if response.text and not response.message_sent:
                 await send_long_message(update, response.text)
 
         except Exception as e:
@@ -2976,8 +2976,8 @@ Session Statistics:
             # Delete progress message
             await thinking_msg.delete()
 
-            # Send response
-            if response.text:
+            # Send response (skip if agent already sent via tool)
+            if response.text and not response.message_sent:
                 await send_long_message(update, response.text)
 
         except Exception as e:
@@ -3005,7 +3005,7 @@ Session Statistics:
                         is_error=response.is_error
                     )
                     await thinking_msg.delete()
-                    if response.text:
+                    if response.text and not response.message_sent:
                         await send_long_message(update, response.text)
                     return
                 except Exception as retry_error:

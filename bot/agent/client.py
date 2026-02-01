@@ -33,6 +33,8 @@ class AgentResponse:
     session_id: Optional[str]  # Session ID (for resume)
     is_error: bool = False
     error_message: Optional[str] = None
+    # Whether agent already sent message via send_telegram_message tool
+    message_sent: bool = False
     # Usage statistics
     input_tokens: int = 0
     output_tokens: int = 0
@@ -390,6 +392,7 @@ class TelegramAgentClient:
         is_error = False
         error_message = None
         step_count = 0
+        message_sent = False  # Track if send_telegram_message was used
         # Usage statistics
         result_input_tokens = 0
         result_output_tokens = 0
@@ -429,6 +432,11 @@ class TelegramAgentClient:
                                 # Tool call - update progress
                                 step_count += 1
                                 tool_name = block.name
+
+                                # Track if send_telegram_message was used
+                                if tool_name == "mcp__telegram__send_telegram_message":
+                                    message_sent = True
+
                                 icon = tool_icons.get(tool_name, "🔧")
                                 display_name = get_tool_display_name(tool_name)
                                 tool_display = f"{icon} {display_name}"
@@ -504,6 +512,7 @@ class TelegramAgentClient:
             session_id=session_id,
             is_error=is_error,
             error_message=error_message,
+            message_sent=message_sent,
             input_tokens=result_input_tokens,
             output_tokens=result_output_tokens,
             cost_usd=result_cost,
