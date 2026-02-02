@@ -202,6 +202,42 @@ The conversation summary has been saved. Your next message will start a fresh se
     STEP_PROGRESS: str = "Step {step}: {tool}..."
     PROCESS_FAILED: str = "Processing failed: {error}"
 
+    # ===== Voice Transcription =====
+    VOICE_NOT_SUPPORTED: str = "Voice transcription is not configured. Please set OpenAI API key."
+    TRANSCRIBING: str = "Transcribing voice message"
+    TRANSCRIPTION_FAILED: str = "Failed to transcribe voice: {error}"
+    TRANSCRIPTION_EMPTY: str = "Could not transcribe voice message (no speech detected)"
+    VOICE_DOWNLOAD_FAILED: str = "Failed to download voice file"
+    TRANSCRIPT_SAVED: str = "Transcript saved for verification"
+
+    # ===== Voice Dictionary =====
+    VOICE_HELP: str = """Voice Transcription Settings
+
+Commands:
+/voice - Show current settings
+/voice add <wrong> <correct> - Add vocabulary correction
+/voice del <wrong> - Remove vocabulary correction
+/voice list - List all corrections
+/voice prompt <text> - Set context prompt
+
+Example:
+/voice add 游米 Yumi
+/voice prompt This is a conversation about AI assistants"""
+    VOICE_SETTINGS_TITLE: str = "Voice Transcription Settings"
+    VOICE_DICT_ENTRIES: str = "Vocabulary corrections"
+    VOICE_CONTEXT_PROMPT: str = "Context prompt"
+    VOICE_NOT_SET: str = "(not set)"
+    VOICE_ADD_SUCCESS: str = "Added: {wrong} -> {correct}"
+    VOICE_ADD_USAGE: str = "Usage: /voice add <wrong> <correct>"
+    VOICE_DEL_SUCCESS: str = "Removed: {wrong}"
+    VOICE_DEL_NOT_FOUND: str = "Entry not found: {wrong}"
+    VOICE_DEL_USAGE: str = "Usage: /voice del <wrong>"
+    VOICE_LIST_EMPTY: str = "No vocabulary corrections set"
+    VOICE_LIST_TITLE: str = "Vocabulary Corrections"
+    VOICE_PROMPT_SET: str = "Context prompt updated"
+    VOICE_PROMPT_USAGE: str = "Usage: /voice prompt <text>"
+    VOICE_PROMPT_CLEARED: str = "Context prompt cleared"
+
     # ===== File Upload =====
     RECEIVING_FILE: str = "Receiving file..."
     FILE_SAVED: str = "File saved: {name} ({size})"

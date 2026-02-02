@@ -4,6 +4,68 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Voice-to-Text Transcription with GPT-4o Transcribe
+
+### Overview
+Added comprehensive voice message transcription support using OpenAI's GPT-4o Transcribe API. Users can now send voice messages to the bot, which will be automatically transcribed, saved, and processed by the Claude Agent.
+
+### New Features
+
+**Voice Transcription**:
+- Supports Telegram voice messages (.oga format) and audio files
+- Uses GPT-4o Transcribe model for high-accuracy transcription
+- Long audio files automatically split using VAD (Voice Activity Detection)
+- Transcripts permanently saved to user's `transcripts/` folder
+- Voice files kept for 24 hours then auto-deleted
+
+**User Dictionary**:
+- Custom vocabulary corrections for improved accuracy
+- Context prompts for domain-specific transcription
+- `/voice` command for managing settings
+
+**Commands**:
+```
+/voice - Show current settings
+/voice add <wrong> <correct> - Add vocabulary correction
+/voice del <wrong> - Remove vocabulary correction
+/voice list - List all corrections
+/voice prompt <text> - Set context prompt
+/voice prompt clear - Clear context prompt
+```
+
+### Configuration
+
+Added `openai_api_key` to `config.json`:
+```json
+{
+    "openai_api_key": "sk-..."
+}
+```
+
+### New Files
+- `bot/transcribe.py` - VoiceTranscriber, VoiceDictionary, TranscriptManager classes
+
+### Modified Files
+- `config.json` - Added `openai_api_key` field
+- `main.py` - Added `openai_api_key` to api_config, added voice file cleanup job
+- `requirements.txt` - Added `openai>=1.0.0`, `pydub>=0.25.0`
+- `Dockerfile` - Added `ffmpeg` system dependency
+- `bot/handlers.py` - Updated voice handling, added `/voice` command
+- `bot/i18n.py` - Added voice transcription and dictionary strings
+
+### Data Storage
+- `{user_dir}/transcripts/` - Permanent transcript storage
+- `{user_dir}/.voice_temp/` - Temporary voice files (24h retention)
+- `{user_dir}/voice_dictionary.json` - User vocabulary settings
+
+### Technical Details
+- Voice Activity Detection (VAD) used for splitting long audio
+- Maximum 25MB per API call, auto-split for larger files
+- Supports caption merging with transcribed text
+- Daily cleanup job removes voice files older than 24 hours
+
+---
+
 ## [2026-02-02] Dynamic Topic-Based Context Management System
 
 ### Overview

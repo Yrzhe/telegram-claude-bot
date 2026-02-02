@@ -82,7 +82,8 @@ def main():
         "api_key": config.get("anthropic_api_key", ""),
         "base_url": config.get("anthropic_base_url", ""),
         "model": config.get("claude_model", ""),
-        "mistral_api_key": config.get("mistral_api_key", "")
+        "mistral_api_key": config.get("mistral_api_key", ""),
+        "openai_api_key": config.get("openai_api_key", "")
     }
 
     setup_handlers(
@@ -340,6 +341,21 @@ Task instructions:
                             logger.error(f"清理任务文档失败 {doc}: {e}")
             if total_cleaned > 0:
                 logger.info(f"清理了 {total_cleaned} 个过期任务文档")
+
+            # Clean up old voice files (older than 24 hours)
+            logger.info("开始清理过期语音文件...")
+            from bot.transcribe import TranscriptManager
+            voice_cleaned = 0
+            for user_dir in users_path.iterdir():
+                if not user_dir.is_dir():
+                    continue
+                try:
+                    transcript_manager = TranscriptManager(user_dir)
+                    transcript_manager.cleanup_old_voice_files(max_age_hours=24)
+                    voice_cleaned += 1
+                except Exception as e:
+                    logger.error(f"清理语音文件失败 {user_dir}: {e}")
+            logger.info(f"已处理 {voice_cleaned} 个用户的语音文件清理")
 
         logger.info("历史记录清理完成")
 

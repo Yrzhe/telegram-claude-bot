@@ -31,6 +31,7 @@ from .custom_command import CustomCommandManager
 from .message_queue import MessageQueueManager
 from .topic import TopicManager
 from .i18n import t, get_tool_display_name
+from .transcribe import create_transcriber, VoiceDictionary, TranscriptManager
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,9 @@ def setup_handlers(
     task_managers: dict[int, TaskManager] = {}
     topic_managers: dict[int, TopicManager] = {}
     api_config = api_config or {}
+
+    # Initialize voice transcriber (if OpenAI API key is configured)
+    voice_transcriber = create_transcriber(api_config.get("openai_api_key", ""))
 
     # 创建消息队列管理器 (确保消息按顺序发送)
     message_queue_manager: MessageQueueManager | None = None
@@ -1849,6 +1853,96 @@ Session Statistics:
         else:
             await update.message.reply_text(t("SKILL_HELP"))
 
+    async def voice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /voice command for managing voice transcription settings"""
+        user_id = update.effective_user.id
+
+        if not can_access(user_id):
+            await handle_unauthorized_user(update, context)
+            return
+
+        if not voice_transcriber:
+            await update.message.reply_text(t("VOICE_NOT_SUPPORTED"))
+            return
+
+        user_data_path = user_manager.get_user_data_path(user_id)
+        dictionary = VoiceDictionary(user_data_path)
+
+        args = context.args or []
+
+        if not args:
+            # Show current settings
+            entries = dictionary.get_entries()
+            prompt = dictionary.context_prompt
+
+            text = f"{t('VOICE_SETTINGS_TITLE')}\n\n"
+            text += f"{t('VOICE_DICT_ENTRIES')}: {len(entries)}\n"
+            if prompt:
+                display_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
+                text += f"{t('VOICE_CONTEXT_PROMPT')}: {display_prompt}\n"
+            else:
+                text += f"{t('VOICE_CONTEXT_PROMPT')}: {t('VOICE_NOT_SET')}\n"
+            text += f"\n{t('VOICE_HELP')}"
+            await update.message.reply_text(text)
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "add":
+            if len(args) < 3:
+                await update.message.reply_text(t("VOICE_ADD_USAGE"))
+                return
+
+            wrong = args[1]
+            correct = " ".join(args[2:])
+            dictionary.add_entry(wrong, correct)
+            await update.message.reply_text(t("VOICE_ADD_SUCCESS", wrong=wrong, correct=correct))
+
+        elif subcommand == "del":
+            if len(args) < 2:
+                await update.message.reply_text(t("VOICE_DEL_USAGE"))
+                return
+
+            wrong = args[1]
+            if dictionary.remove_entry(wrong):
+                await update.message.reply_text(t("VOICE_DEL_SUCCESS", wrong=wrong))
+            else:
+                await update.message.reply_text(t("VOICE_DEL_NOT_FOUND", wrong=wrong))
+
+        elif subcommand == "list":
+            entries = dictionary.get_entries()
+            if not entries:
+                await update.message.reply_text(t("VOICE_LIST_EMPTY"))
+                return
+
+            lines = [f"{t('VOICE_LIST_TITLE')}\n"]
+            for entry in entries:
+                lines.append(f"- {entry['wrong']} -> {entry['correct']}")
+
+            await update.message.reply_text("\n".join(lines))
+
+        elif subcommand == "prompt":
+            if len(args) < 2:
+                # Show current prompt or usage
+                if dictionary.context_prompt:
+                    await update.message.reply_text(f"{t('VOICE_CONTEXT_PROMPT')}:\n\n{dictionary.context_prompt}")
+                else:
+                    await update.message.reply_text(t("VOICE_PROMPT_USAGE"))
+                return
+
+            # Check for clear command
+            if args[1].lower() == "clear":
+                dictionary.set_context_prompt("")
+                await update.message.reply_text(t("VOICE_PROMPT_CLEARED"))
+                return
+
+            prompt_text = " ".join(args[1:])
+            dictionary.set_context_prompt(prompt_text)
+            await update.message.reply_text(t("VOICE_PROMPT_SET"))
+
+        else:
+            await update.message.reply_text(t("VOICE_HELP"))
+
     async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
 
@@ -2706,19 +2800,212 @@ Session Statistics:
             await thinking_msg.edit_text(t("PROCESS_FAILED", error=str(e)))
 
     async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle voice messages - for adding to custom commands"""
+        """Handle voice messages - transcribe and pass to Agent"""
         user_id = update.effective_user.id
         if not can_access(user_id):
             await handle_unauthorized_user(update, context)
             return
 
-        # 检查是否是 admin 添加媒体模式
+        # Check if admin is adding media to custom command
         if user_id in pending_media_commands:
             await handle_media_for_custom_command(update, context)
             return
 
-        # 否则忽略语音消息（或可以交给 Agent 处理）
-        await update.message.reply_text("收到语音消息，但暂不支持语音交互")
+        # Check if voice transcription is enabled
+        if not voice_transcriber:
+            await update.message.reply_text(t("VOICE_NOT_SUPPORTED"))
+            return
+
+        # Update user info
+        user = update.effective_user
+        info_changed = user_manager.update_user_info(user_id, user.username or "", user.first_name or "")
+        if info_changed and user_id in user_agents:
+            del user_agents[user_id]
+
+        # Send processing message
+        thinking_msg = await update.message.reply_text(f"🎤 {t('TRANSCRIBING')}")
+
+        # Start typing indicator
+        typing = TypingIndicator(context.bot, user_id)
+        await typing.start()
+
+        try:
+            # Get user directory and managers
+            user_data_path = user_manager.get_user_data_path(user_id)
+            transcript_manager = TranscriptManager(user_data_path)
+            voice_dictionary = VoiceDictionary(user_data_path)
+
+            # Get voice temp directory (files kept for 1 day)
+            voice_temp_dir = transcript_manager.get_voice_temp_dir()
+
+            # Get voice file
+            voice = update.message.voice or update.message.audio
+            if not voice:
+                await typing.stop()
+                await thinking_msg.edit_text(t("VOICE_DOWNLOAD_FAILED"))
+                return
+
+            file = await context.bot.get_file(voice.file_id)
+
+            # Generate file name with timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # Telegram voice messages are in .oga format (Ogg with Opus codec)
+            extension = ".oga" if update.message.voice else ".mp3"
+            voice_filename = f"voice_{timestamp}{extension}"
+            voice_file = voice_temp_dir / voice_filename
+
+            # Download to file (kept for 1 day)
+            await file.download_to_drive(str(voice_file))
+            logger.info(f"User {user_id} voice file downloaded: {voice_file}")
+
+            # Get voice duration (if available)
+            duration_seconds = voice.duration if hasattr(voice, 'duration') else 0
+            duration_info = f" ({duration_seconds}s)" if duration_seconds else ""
+
+            # Transcribe with user dictionary
+            await thinking_msg.edit_text(f"🎤 {t('TRANSCRIBING')}{duration_info}...")
+            try:
+                transcribed_text, cleanup_files = await voice_transcriber.transcribe(
+                    voice_file,
+                    dictionary=voice_dictionary
+                )
+                # Clean up segment files immediately
+                for f in cleanup_files:
+                    try:
+                        f.unlink()
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.error(f"User {user_id} voice transcription failed: {e}")
+                await typing.stop()
+                await thinking_msg.edit_text(t("TRANSCRIPTION_FAILED", error=str(e)))
+                return
+
+            if not transcribed_text or not transcribed_text.strip():
+                await typing.stop()
+                await thinking_msg.edit_text(t("TRANSCRIPTION_EMPTY"))
+                return
+
+            # Save transcript to permanent storage
+            transcript_path = transcript_manager.save_transcript(
+                transcribed_text,
+                original_filename=voice_filename
+            )
+
+            # Send transcript file to user for verification
+            try:
+                with open(transcript_path, 'rb') as f:
+                    await update.message.reply_document(
+                        document=f,
+                        filename=transcript_path.name,
+                        caption=t("TRANSCRIPT_SAVED")
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to send transcript file: {e}")
+
+            # Get user's caption (if any) and merge with transcript
+            caption = update.message.caption or ""
+            if caption:
+                user_message = f"[Voice message transcript]\n{transcribed_text}\n\n[User's additional note]\n{caption}"
+            else:
+                user_message = transcribed_text
+
+            # Show transcribed text preview
+            display_text = transcribed_text
+            if len(display_text) > 100:
+                display_text = display_text[:100] + "..."
+            await thinking_msg.edit_text(f"🎤 \"{display_text}\"\n\n{t('PROCESSING')}")
+
+            # Maybe add reaction (30% probability)
+            asyncio.create_task(maybe_add_reaction(
+                bot=context.bot,
+                chat_id=user_id,
+                message_id=update.message.message_id,
+                user_message=transcribed_text,
+                api_config=api_config,
+                probability=0.3
+            ))
+
+            # Create progress callback
+            async def update_progress(status: str):
+                try:
+                    await thinking_msg.edit_text(f"🎤 \"{display_text}\"\n\n{status}")
+                except Exception:
+                    pass
+
+            # Get Agent and process
+            agent = get_agent_for_user(user_id, context.bot)
+            resume_session_id = session_manager.get_session_id(user_id)
+
+            if resume_session_id:
+                logger.info(f"User {user_id} resuming session with voice: {resume_session_id[:8]}...")
+            else:
+                logger.info(f"User {user_id} starting new session with voice")
+
+            # Process message
+            response = await agent.process_message(
+                user_message,
+                resume_session_id,
+                progress_callback=update_progress
+            )
+
+            # Handle session expired error
+            if response.is_error and response.error_message and "No conversation found" in response.error_message:
+                logger.warning(f"User {user_id} session expired, clearing and retrying")
+                session_manager.end_session(user_id)
+                agent = get_agent_for_user(user_id, context.bot)
+                response = await agent.process_message(
+                    user_message,
+                    None,
+                    progress_callback=update_progress
+                )
+
+            # Update session with usage stats
+            if response.session_id:
+                usage_stats = {
+                    'input_tokens': response.input_tokens,
+                    'output_tokens': response.output_tokens,
+                    'cost_usd': response.cost_usd,
+                    'turns': response.num_turns
+                }
+                update_usage_stats(user_id, response.session_id, usage_stats)
+
+            # Log chat history
+            display_message = f"[Voice] {transcribed_text[:200]}..." if len(transcribed_text) > 200 else f"[Voice] {transcribed_text}"
+            user_manager.add_chat_record(
+                user_id=user_id,
+                user_message=display_message,
+                agent_response=response.text,
+                session_id=response.session_id,
+                is_error=response.is_error
+            )
+
+            chat_logger.log_message(
+                user_id=user_id,
+                user_message=display_message,
+                agent_response=response.text,
+                session_id=response.session_id,
+                is_error=response.is_error
+            )
+
+            # Stop typing indicator
+            await typing.stop()
+
+            # Delete progress message
+            await thinking_msg.delete()
+
+            # Send reply (skip if agent already sent via tool)
+            if response.text and not response.message_sent:
+                await send_long_message(update, response.text)
+
+        except Exception as e:
+            # Stop typing indicator on error
+            await typing.stop()
+            logger.error(f"User {user_id} voice processing failed: {e}")
+            try:
+                await thinking_msg.edit_text(t("PROCESS_FAILED", error=str(e)))
+            except Exception:
+                pass
 
     async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle photo messages - save to temp file and let Agent analyze via Read tool"""
@@ -3102,6 +3389,7 @@ Session Statistics:
     app.add_handler(CommandHandler("packages", packages_command))
     app.add_handler(CommandHandler("schedule", schedule_command))
     app.add_handler(CommandHandler("skill", skill_command))
+    app.add_handler(CommandHandler("voice", voice_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("cancel", lambda u, c: handle_media_for_custom_command(u, c)))
 
