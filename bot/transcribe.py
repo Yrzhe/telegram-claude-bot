@@ -245,10 +245,27 @@ class VoiceTranscriber:
         # Get prompt from dictionary or use default
         prompt = dictionary.get_prompt() if dictionary else DEFAULT_PROMPT
 
-        # Split audio if needed
-        segments = self._split_audio_by_silence(audio_path)
-        transcripts = []
         cleanup_files = []
+        working_audio_path = audio_path
+
+        # Convert .oga to .mp3 (OpenAI doesn't support .oga format)
+        if audio_path.suffix.lower() == ".oga":
+            try:
+                from pydub import AudioSegment
+                logger.info(f"Converting .oga to .mp3: {audio_path}")
+                audio = AudioSegment.from_file(str(audio_path), format="ogg")
+                mp3_path = audio_path.with_suffix(".mp3")
+                audio.export(str(mp3_path), format="mp3")
+                working_audio_path = mp3_path
+                cleanup_files.append(mp3_path)
+                logger.info(f"Converted to: {mp3_path}")
+            except Exception as e:
+                logger.error(f"Failed to convert .oga to .mp3: {e}")
+                raise Exception(f"Failed to convert audio format: {e}")
+
+        # Split audio if needed
+        segments = self._split_audio_by_silence(working_audio_path)
+        transcripts = []
 
         try:
             for i, segment_path in enumerate(segments):
@@ -264,8 +281,8 @@ class VoiceTranscriber:
 
                 transcripts.append(transcript)
 
-                # Mark segment files for cleanup (but not the original)
-                if segment_path != audio_path:
+                # Mark segment files for cleanup (but not the original or converted file)
+                if segment_path != working_audio_path and segment_path != audio_path:
                     cleanup_files.append(segment_path)
 
             # Combine all transcripts

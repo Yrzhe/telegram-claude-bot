@@ -4,6 +4,19 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Fix: Convert .oga to .mp3 for OpenAI API compatibility
+
+OpenAI's GPT-4o Transcribe API doesn't support `.oga` format directly. Added automatic conversion from `.oga` to `.mp3` before transcription.
+
+### Fixed
+- Voice transcription now works with Telegram voice messages (.oga format)
+- Uses pydub/ffmpeg to convert .oga → .mp3 before API call
+
+### Modified Files
+- `bot/transcribe.py` - Added .oga to .mp3 conversion in transcribe() method
+
+---
+
 ## [2026-02-03] Voice-to-Text Transcription with GPT-4o Transcribe
 
 ### Overview
