@@ -2910,11 +2910,8 @@ Session Statistics:
             else:
                 user_message = transcribed_text
 
-            # Show transcribed text preview
-            display_text = transcribed_text
-            if len(display_text) > 100:
-                display_text = display_text[:100] + "..."
-            await thinking_msg.edit_text(f"🎤 \"{display_text}\"\n\n{t('PROCESSING')}")
+            # Update processing message (transcript file already sent)
+            await thinking_msg.edit_text(t('PROCESSING'))
 
             # Maybe add reaction (30% probability)
             asyncio.create_task(maybe_add_reaction(
@@ -2929,7 +2926,7 @@ Session Statistics:
             # Create progress callback
             async def update_progress(status: str):
                 try:
-                    await thinking_msg.edit_text(f"🎤 \"{display_text}\"\n\n{status}")
+                    await thinking_msg.edit_text(status)
                 except Exception:
                     pass
 

@@ -4,6 +4,15 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Simplify voice transcription UI
+
+Removed redundant text preview in processing message since transcript file is already sent to user.
+
+### Modified Files
+- `bot/handlers.py` - Removed duplicate text display in voice processing
+
+---
+
 ## [2026-02-03] Fix: Convert .oga to .mp3 for OpenAI API compatibility
 
 OpenAI's GPT-4o Transcribe API doesn't support `.oga` format directly. Added automatic conversion from `.oga` to `.mp3` before transcription.
