@@ -68,7 +68,8 @@ class TelegramAgentClient:
         user_display_name: str | None = None,
         custom_command_manager: Any | None = None,
         admin_user_ids: list[int] | None = None,
-        context_summary: str | None = None
+        context_summary: str | None = None,
+        topic_context: str | None = None
     ):
         """
         Initialize Agent client.
@@ -93,6 +94,7 @@ class TelegramAgentClient:
             custom_command_manager: Custom command manager for admin operations
             admin_user_ids: List of admin user IDs for permission checks
             context_summary: Previous conversation summary (from /compact)
+            topic_context: Topic context string from TopicManager
         """
         self.user_id = user_id
         self.working_directory = Path(working_directory).resolve()
@@ -112,6 +114,7 @@ class TelegramAgentClient:
         self.custom_command_manager = custom_command_manager
         self.admin_user_ids = admin_user_ids or []
         self.context_summary = context_summary or ""
+        self.topic_context = topic_context or ""
 
         # Initialize file tracker for tracking new files during task execution
         self.file_tracker = FileTracker(self.working_directory)
@@ -352,7 +355,8 @@ class TelegramAgentClient:
                 working_directory=str(self.working_directory),
                 storage_info=self.storage_info,
                 context_summary=self.context_summary,
-                custom_skills_content=self.custom_skills_content
+                custom_skills_content=self.custom_skills_content,
+                topic_context=self.topic_context
             )
             return prompt
         except Exception as e:

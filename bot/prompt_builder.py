@@ -120,7 +120,8 @@ def build_system_prompt(
     storage_info: Optional[dict] = None,
     context_summary: Optional[str] = None,
     custom_skills_content: Optional[str] = None,
-    additional_sections: Optional[dict[str, str]] = None
+    additional_sections: Optional[dict[str, str]] = None,
+    topic_context: Optional[str] = None
 ) -> str:
     """
     Build the complete system prompt from modular components.
@@ -133,6 +134,7 @@ def build_system_prompt(
         context_summary: Previous conversation summary (from /compact)
         custom_skills_content: User's custom skills content
         additional_sections: Additional sections to add (key=section_name, value=content)
+        topic_context: Topic context string from TopicManager
 
     Returns:
         Complete system prompt string
@@ -181,6 +183,10 @@ Use this information to maintain continuity with the user."""
         context = context.replace("{context_summary}", context_str)
 
         sections.append(context)
+
+    # 2.5. Topic Context (Dynamic topic information)
+    if topic_context:
+        sections.append(topic_context)
 
     # 3. Rules (Operational guidelines)
     rules = load_prompt_module("rules")

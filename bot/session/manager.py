@@ -25,6 +25,8 @@ class SessionInfo:
     total_turns: int = 0
     # Context compaction
     compact_count: int = 0  # Number of times this session has been compacted
+    # Topic tracking
+    current_topic_id: Optional[str] = None  # Current topic ID from TopicManager
 
     def is_expired(self, timeout_seconds: int = 3600) -> bool:
         """检查会话是否过期（默认1小时，0表示永不过期）"""
@@ -75,7 +77,8 @@ class SessionManager:
                         total_output_tokens=session_data.get('total_output_tokens', 0),
                         total_cost_usd=session_data.get('total_cost_usd', 0.0),
                         total_turns=session_data.get('total_turns', 0),
-                        compact_count=session_data.get('compact_count', 0)
+                        compact_count=session_data.get('compact_count', 0),
+                        current_topic_id=session_data.get('current_topic_id')
                     )
                 logger.info(f"加载了 {len(self._sessions)} 个会话")
             except Exception as e:
@@ -152,7 +155,8 @@ class SessionManager:
         self,
         user_id: int,
         session_id: str | None = None,
-        usage: dict | None = None
+        usage: dict | None = None,
+        topic_id: str | None = None
     ):
         """
         更新会话（更新活跃时间和消息计数）
@@ -161,18 +165,33 @@ class SessionManager:
             user_id: 用户 ID
             session_id: 新的会话 ID（如果需要更新）
             usage: 使用统计信息 {input_tokens, output_tokens, cost_usd, turns}
+            topic_id: 当前话题 ID
         """
         session = self._sessions.get(user_id)
         if session:
             session.touch()
             if session_id:
                 session.session_id = session_id
+            if topic_id:
+                session.current_topic_id = topic_id
             # Update usage statistics
             if usage:
                 session.total_input_tokens += usage.get('input_tokens', 0)
                 session.total_output_tokens += usage.get('output_tokens', 0)
                 session.total_cost_usd += usage.get('cost_usd', 0.0)
                 session.total_turns += usage.get('turns', 0)
+            self._save_sessions()
+
+    def get_current_topic_id(self, user_id: int) -> Optional[str]:
+        """获取用户当前的话题 ID"""
+        session = self.get_session(user_id)
+        return session.current_topic_id if session else None
+
+    def set_current_topic_id(self, user_id: int, topic_id: str | None):
+        """设置用户当前的话题 ID"""
+        session = self._sessions.get(user_id)
+        if session:
+            session.current_topic_id = topic_id
             self._save_sessions()
 
     def clear_session(self, user_id: int) -> bool:
@@ -223,7 +242,9 @@ class SessionManager:
             "total_tokens": session.total_input_tokens + session.total_output_tokens,
             "total_cost_usd": session.total_cost_usd,
             "total_turns": session.total_turns,
-            "compact_count": session.compact_count
+            "compact_count": session.compact_count,
+            # Topic tracking
+            "current_topic_id": session.current_topic_id
         }
 
     def cleanup_expired_sessions(self):

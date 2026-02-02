@@ -4,6 +4,66 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-02] Dynamic Topic-Based Context Management System
+
+### Overview
+Implemented a flexible, semantic topic management system that automatically detects topic changes, dynamically manages context, and allows topic recall.
+
+### New Features
+
+**Topic Detection (3-Tier Classification)**:
+- Tier 1: Heuristics (free) - handles ~70% of cases with keyword matching and signal detection
+- Tier 2: Haiku API (~$0.0003) - for ambiguous cases requiring semantic understanding
+- Tier 3: Full model (reserved for edge cases)
+
+**TopicManager**:
+- Automatic topic creation and tracking
+- Active topics limit (max 5)
+- Topic archival after 2 hours of inactivity
+- Topic recall by name reference
+- Context injection into system prompt
+
+**Auto-Compaction Based on Token Pressure**:
+- < 100K tokens: Normal operation
+- 100-140K tokens: Archive topics inactive > 1 hour
+- > 140K tokens: Force archive all except current topic
+
+**Session Integration**:
+- `/session` command now shows current topic info
+- `/new` command clears all topics
+
+### New Files
+- `bot/topic/__init__.py` - Module exports
+- `bot/topic/manager.py` - TopicManager class, Topic dataclass, TopicContext
+- `bot/topic/classifier.py` - TopicClassifier with 3-tier classification
+
+### Modified Files
+- `bot/session/manager.py` - Added `current_topic_id` to SessionInfo
+- `bot/prompt_builder.py` - Added `topic_context` parameter to build_system_prompt()
+- `bot/agent/client.py` - Added `topic_context` parameter to TelegramAgentClient
+- `bot/handlers.py` - Integrated TopicManager for message classification and context injection
+
+### Data Storage
+Topics are stored per-user in `{user_dir}/topics.json`:
+```json
+{
+  "active_topic_ids": ["topic_20260202_abc"],
+  "current_topic_id": "topic_20260202_abc",
+  "topics": {
+    "topic_20260202_abc": {
+      "id": "topic_20260202_abc",
+      "title": "Stock analysis for TSLA",
+      "keywords": ["TSLA", "stock", "earnings"],
+      "status": "active",
+      "message_count": 12,
+      "summary": ""
+    }
+  }
+}
+```
+
+---
+
 ## [2026-02-01] Fix Duplicate Message Sending
 
 ### Overview

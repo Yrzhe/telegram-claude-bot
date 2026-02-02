@@ -29,6 +29,7 @@ from .schedule import ScheduleManager
 from .skill import SkillManager
 from .custom_command import CustomCommandManager
 from .message_queue import MessageQueueManager
+from .topic import TopicManager
 from .i18n import t, get_tool_display_name
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,7 @@ def setup_handlers(
     """
     user_agents: dict[int, TelegramAgentClient] = {}
     task_managers: dict[int, TaskManager] = {}
+    topic_managers: dict[int, TopicManager] = {}
     api_config = api_config or {}
 
     # 创建消息队列管理器 (确保消息按顺序发送)
@@ -384,6 +386,17 @@ def setup_handlers(
                 send_message_callback=send_message_callback
             )
         return task_managers[user_id]
+
+    def get_topic_manager(user_id: int) -> TopicManager:
+        """Get or create TopicManager for user"""
+        if user_id not in topic_managers:
+            user_data_path = user_manager.get_user_data_path(user_id)
+            topic_managers[user_id] = TopicManager(
+                user_directory=str(user_data_path),
+                api_key=api_config.get("api_key", ""),
+                base_url=api_config.get("base_url")
+            )
+        return topic_managers[user_id]
 
     def update_usage_stats(user_id: int, session_id: str | None, usage_stats: dict, is_new_session: bool = False):
         """
@@ -560,6 +573,10 @@ def setup_handlers(
         # Get context summary (from previous /compact)
         context_summary = user_manager.get_context_summary(user_id)
 
+        # Get topic context from TopicManager
+        topic_mgr = get_topic_manager(user_id)
+        topic_context = topic_mgr.get_context_string()
+
         user_agents[user_id] = TelegramAgentClient(
             user_id=user_id,
             working_directory=str(user_data_path),
@@ -578,7 +595,8 @@ def setup_handlers(
             user_display_name=user_display_name,
             custom_command_manager=custom_command_manager,
             admin_user_ids=admin_users,
-            context_summary=context_summary
+            context_summary=context_summary,
+            topic_context=topic_context
         )
         return user_agents[user_id]
 
@@ -758,6 +776,16 @@ def setup_handlers(
    Cost: {format_cost(sess_cost)}
    Remaining: {remaining_text}
 """
+            # Add topic info
+            topic_mgr = get_topic_manager(user_id)
+            topic_info = topic_mgr.get_current_topic_info()
+            if topic_info:
+                text += f"""
+💬 Current Topic: {topic_info['title']}
+   Keywords: {', '.join(topic_info['keywords'][:3]) if topic_info['keywords'] else 'None'}
+   Messages: {topic_info['message_count']}
+   Active Topics: {topic_info['active_topics']} / Total: {topic_info['total_topics']}
+"""
         else:
             text += "\n📍 No active session"
 
@@ -814,6 +842,14 @@ def setup_handlers(
 
         # 清除会话
         had_session = session_manager.clear_session(user_id)
+
+        # 清除话题
+        topic_mgr = get_topic_manager(user_id)
+        topic_mgr.clear_all_topics()
+
+        # 清除缓存的 agent
+        if user_id in user_agents:
+            del user_agents[user_id]
 
         if not chat_log or len(chat_log) <= 100:
             if had_session:
@@ -2505,7 +2541,19 @@ Session Statistics:
                 pass
 
         try:
-            # Get Agent client for user
+            # Get topic manager and classify the message
+            topic_mgr = get_topic_manager(user_id)
+            topic, classification = await topic_mgr.process_message(
+                user_message,
+                tokens_estimate=len(user_message) * 2  # Rough estimate
+            )
+            logger.debug(f"User {user_id} topic: {topic.title} (action={classification.action.value})")
+
+            # Force recreate agent to get updated topic context
+            if user_id in user_agents:
+                del user_agents[user_id]
+
+            # Get Agent client for user (with fresh topic context)
             agent = get_agent_for_user(user_id, context.bot)
 
             # Get session ID (if exists)
@@ -2543,6 +2591,19 @@ Session Statistics:
                     'turns': response.num_turns
                 }
                 update_usage_stats(user_id, response.session_id, usage_stats)
+
+                # Update session with current topic ID
+                if topic_mgr.current_topic_id:
+                    session_manager.set_current_topic_id(user_id, topic_mgr.current_topic_id)
+
+                # Update topic with token usage
+                topic_mgr.update_current_topic(response.input_tokens + response.output_tokens)
+
+                # Run topic auto-maintenance based on token count
+                session_info = session_manager.get_session(user_id)
+                if session_info:
+                    total_tokens = session_info.total_input_tokens + session_info.total_output_tokens
+                    await topic_mgr.auto_maintenance(total_tokens)
 
                 # Check if auto-compaction is needed (threshold: 150K tokens)
                 if session_manager.needs_compaction(user_id, threshold_tokens=150000):
