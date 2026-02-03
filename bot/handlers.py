@@ -593,6 +593,7 @@ def setup_handlers(
             storage_info=storage_info,
             model=api_config.get("model"),
             mistral_api_key=api_config.get("mistral_api_key"),
+            openai_api_key=api_config.get("openai_api_key"),
             custom_skills_content=custom_skills_content,
             schedule_manager=schedule_manager,
             task_manager=tm,

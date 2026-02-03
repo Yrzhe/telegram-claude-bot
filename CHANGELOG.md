@@ -4,6 +4,43 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] OpenAI Research Tools Integration
+
+### Overview
+Added OpenAI research capabilities using gpt-4o for web search and o3 for deep reasoning and analysis. Enables comprehensive research workflows that combine real-time web data with advanced analytical capabilities.
+
+### New Features
+
+**OpenAI Research Tools**:
+- `openai_web_search` - Web search using gpt-4o with OpenAI's web search capability
+- `openai_deep_analyze` - Deep analysis using o3 for complex reasoning
+- `openai_research` - Complete research pipeline (search + analysis)
+- `openai_chat` - Simple chat with gpt-4o/gpt-4o-mini
+
+**Research Workflow**:
+1. Search phase: gpt-4o + web_search (o3 doesn't support direct web search)
+2. Analysis phase: o3 with high reasoning effort (default)
+3. Agent automatically selects tools based on user intent
+
+**Default Configuration**:
+- Analysis model: o3 (most capable)
+- Reasoning effort: high (thorough analysis)
+
+### New Files
+- `bot/openai_research/__init__.py` - Module init
+- `bot/openai_research/client.py` - OpenAI Research Client wrapper
+- `.claude/skills/openai-research/SKILL.md` - Skill documentation with usage scenarios
+
+### Modified Files
+- `bot/agent/tools.py` - Added OpenAI research tools and `_openai_api_key` config
+- `bot/agent/client.py` - Added `openai_api_key` parameter and allowed tools
+- `bot/handlers.py` - Pass `openai_api_key` to TelegramAgentClient
+
+### Configuration
+Uses `openai_api_key` from `config.json` (already configured).
+
+---
+
 ## [2026-02-03] Memory System: On-Demand Recall
 
 ### Overview

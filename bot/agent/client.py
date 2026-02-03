@@ -61,6 +61,7 @@ class TelegramAgentClient:
         storage_info: dict | None = None,
         model: str | None = None,
         mistral_api_key: str | None = None,
+        openai_api_key: str | None = None,
         is_sub_agent: bool = False,
         custom_skills_content: str | None = None,
         schedule_manager: Any | None = None,
@@ -86,6 +87,7 @@ class TelegramAgentClient:
             storage_info: User storage info
             model: Claude model name
             mistral_api_key: Mistral API key (for PDF conversion, not exposed to Agent)
+            openai_api_key: OpenAI API key (for research tools, not exposed to Agent)
             is_sub_agent: Whether this is a Sub Agent (won't send messages to user)
             custom_skills_content: User's custom skills content to append to system prompt
             schedule_manager: Schedule manager for scheduled task operations
@@ -122,6 +124,7 @@ class TelegramAgentClient:
         # Set tool config (API key won't be exposed to Agent)
         set_tool_config(
             mistral_api_key=mistral_api_key,
+            openai_api_key=openai_api_key,
             working_directory=str(self.working_directory),
             delegate_callback=delegate_callback,
             delegate_review_callback=delegate_review_callback,
@@ -286,6 +289,11 @@ class TelegramAgentClient:
             "mcp__telegram__pdf_to_markdown",
             "mcp__telegram__delete_file",
             "mcp__telegram__compress_folder",
+            # OpenAI Research Tools
+            "mcp__telegram__openai_web_search",
+            "mcp__telegram__openai_deep_analyze",
+            "mcp__telegram__openai_research",
+            "mcp__telegram__openai_chat",
             "Read",
             "Write",
             "Edit",

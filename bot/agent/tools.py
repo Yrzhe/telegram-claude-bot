@@ -40,6 +40,7 @@ def clean_markdown_for_telegram(text: str) -> str:
 
 # Global config storage (not accessible by Agent)
 _mistral_api_key: str | None = None
+_openai_api_key: str | None = None
 _working_directory: Path | None = None
 _delegate_callback: Optional[Callable[[str, str], Awaitable[Optional[str]]]] = None
 _delegate_review_callback: Optional[Callable[[str, str, str], Awaitable[Optional[str]]]] = None
@@ -53,6 +54,7 @@ _admin_user_ids: list[int] = []
 
 def set_tool_config(
     mistral_api_key: str | None = None,
+    openai_api_key: str | None = None,
     working_directory: str | None = None,
     delegate_callback: Optional[Callable[[str, str], Awaitable[Optional[str]]]] = None,
     delegate_review_callback: Optional[Callable[[str, str, str], Awaitable[Optional[str]]]] = None,
@@ -64,9 +66,10 @@ def set_tool_config(
     admin_user_ids: list[int] | None = None
 ):
     """Set tool config (call before creating tools)"""
-    global _mistral_api_key, _working_directory, _delegate_callback, _delegate_review_callback, _max_sub_agents
+    global _mistral_api_key, _openai_api_key, _working_directory, _delegate_callback, _delegate_review_callback, _max_sub_agents
     global _schedule_manager, _current_user_id, _task_manager, _custom_command_manager, _admin_user_ids
     _mistral_api_key = mistral_api_key
+    _openai_api_key = openai_api_key
     if working_directory:
         _working_directory = Path(working_directory)
     _delegate_callback = delegate_callback
@@ -2204,6 +2207,250 @@ Parameters:
                 "is_error": True
             }
 
+    # OpenAI Research Tools
+    @tool(
+        "openai_web_search",
+        """Perform web search using OpenAI's web search capability.
+Uses gpt-4o with web_search tool to find current information.
+Best for: Real-time data, news, recent events, current prices/stats.
+Returns: Search results with sources and summaries.""",
+        {
+            "query": str,
+            "max_results": int  # Optional, default 10
+        }
+    )
+    async def openai_web_search(args: dict[str, Any]) -> dict[str, Any]:
+        """Perform web search using OpenAI"""
+        if not _openai_api_key:
+            return {
+                "content": [{"type": "text", "text": "OpenAI API key not configured"}],
+                "is_error": True
+            }
+
+        query = args.get("query", "")
+        if not query:
+            return {
+                "content": [{"type": "text", "text": "Search query is required"}],
+                "is_error": True
+            }
+
+        max_results = args.get("max_results", 10)
+
+        try:
+            from ..openai_research import OpenAIResearchClient
+
+            client = OpenAIResearchClient(_openai_api_key)
+            result = client.web_search(query, max_results=max_results)
+
+            if result.is_error:
+                return {
+                    "content": [{"type": "text", "text": f"Search failed: {result.error_message}"}],
+                    "is_error": True
+                }
+
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Search results for '{query}':\n\n{result.content}\n\n[Tokens: {result.input_tokens}+{result.output_tokens}]"
+                }]
+            }
+        except Exception as e:
+            logger.error(f"OpenAI web search failed: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Search failed: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "openai_deep_analyze",
+        """Perform deep analysis using OpenAI o3 model.
+Uses o3/o3-mini for complex reasoning and analysis tasks.
+Best for: Deep analysis, complex reasoning, synthesizing information, research reports.
+Input: Content to analyze + analysis instructions.
+Returns: Thorough analysis with insights and conclusions.""",
+        {
+            "content": str,  # Content to analyze
+            "analysis_prompt": str,  # Instructions for analysis
+            "model": str,  # Optional: o3-mini (default), o3, o1, o1-mini
+            "reasoning_effort": str  # Optional: low, medium (default), high
+        }
+    )
+    async def openai_deep_analyze(args: dict[str, Any]) -> dict[str, Any]:
+        """Perform deep analysis using OpenAI o3"""
+        if not _openai_api_key:
+            return {
+                "content": [{"type": "text", "text": "OpenAI API key not configured"}],
+                "is_error": True
+            }
+
+        content = args.get("content", "")
+        analysis_prompt = args.get("analysis_prompt", "")
+
+        if not content:
+            return {
+                "content": [{"type": "text", "text": "Content to analyze is required"}],
+                "is_error": True
+            }
+
+        model = args.get("model", "o3")
+        reasoning_effort = args.get("reasoning_effort", "high")
+
+        try:
+            from ..openai_research import OpenAIResearchClient
+
+            client = OpenAIResearchClient(_openai_api_key)
+            result = client.deep_analyze(
+                content=content,
+                analysis_prompt=analysis_prompt or "Analyze the following content thoroughly.",
+                model=model,
+                reasoning_effort=reasoning_effort
+            )
+
+            if result.is_error:
+                return {
+                    "content": [{"type": "text", "text": f"Analysis failed: {result.error_message}"}],
+                    "is_error": True
+                }
+
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Analysis (model={model}, effort={reasoning_effort}):\n\n{result.content}\n\n[Tokens: {result.input_tokens}+{result.output_tokens}]"
+                }]
+            }
+        except Exception as e:
+            logger.error(f"OpenAI deep analysis failed: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Analysis failed: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "openai_research",
+        """Complete research pipeline: web search + deep analysis with o3.
+Automatically:
+1. Generates search queries for the topic
+2. Performs multiple web searches (gpt-4o)
+3. Synthesizes findings with deep analysis (o3)
+Best for: Comprehensive research on any topic.
+Returns: Full research report with findings and conclusions.""",
+        {
+            "topic": str,  # Research topic
+            "search_queries": list,  # Optional: custom search queries
+            "analysis_prompt": str,  # Optional: custom analysis instructions
+            "analysis_model": str,  # Optional: o3-mini (default), o3
+            "reasoning_effort": str  # Optional: low, medium (default), high
+        }
+    )
+    async def openai_research(args: dict[str, Any]) -> dict[str, Any]:
+        """Complete research pipeline using OpenAI"""
+        if not _openai_api_key:
+            return {
+                "content": [{"type": "text", "text": "OpenAI API key not configured"}],
+                "is_error": True
+            }
+
+        topic = args.get("topic", "")
+        if not topic:
+            return {
+                "content": [{"type": "text", "text": "Research topic is required"}],
+                "is_error": True
+            }
+
+        search_queries = args.get("search_queries")
+        analysis_prompt = args.get("analysis_prompt")
+        analysis_model = args.get("analysis_model", "o3")
+        reasoning_effort = args.get("reasoning_effort", "medium")
+
+        try:
+            from ..openai_research import OpenAIResearchClient
+
+            client = OpenAIResearchClient(_openai_api_key)
+            result = client.research(
+                topic=topic,
+                search_queries=search_queries,
+                analysis_prompt=analysis_prompt,
+                analysis_model=analysis_model,
+                reasoning_effort=reasoning_effort
+            )
+
+            if result.is_error:
+                return {
+                    "content": [{"type": "text", "text": f"Research failed: {result.error_message}"}],
+                    "is_error": True
+                }
+
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Research Report: {topic}\n\n{result.content}\n\n[Models: {result.model_used}, Tokens: {result.input_tokens}+{result.output_tokens}]"
+                }]
+            }
+        except Exception as e:
+            logger.error(f"OpenAI research failed: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Research failed: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "openai_chat",
+        """Simple chat with OpenAI models (no web search, no deep reasoning).
+Uses gpt-4o or gpt-4o-mini for quick responses.
+Best for: Quick questions, formatting, translation, simple tasks.""",
+        {
+            "message": str,
+            "model": str,  # Optional: gpt-4o (default), gpt-4o-mini
+            "system_prompt": str  # Optional: custom system prompt
+        }
+    )
+    async def openai_chat(args: dict[str, Any]) -> dict[str, Any]:
+        """Simple chat with OpenAI"""
+        if not _openai_api_key:
+            return {
+                "content": [{"type": "text", "text": "OpenAI API key not configured"}],
+                "is_error": True
+            }
+
+        message = args.get("message", "")
+        if not message:
+            return {
+                "content": [{"type": "text", "text": "Message is required"}],
+                "is_error": True
+            }
+
+        model = args.get("model", "gpt-4o")
+        system_prompt = args.get("system_prompt")
+
+        try:
+            from ..openai_research import OpenAIResearchClient
+
+            client = OpenAIResearchClient(_openai_api_key)
+            result = client.chat(
+                message=message,
+                model=model,
+                system_prompt=system_prompt
+            )
+
+            if result.is_error:
+                return {
+                    "content": [{"type": "text", "text": f"Chat failed: {result.error_message}"}],
+                    "is_error": True
+                }
+
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"{result.content}\n\n[Model: {model}, Tokens: {result.input_tokens}+{result.output_tokens}]"
+                }]
+            }
+        except Exception as e:
+            logger.error(f"OpenAI chat failed: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Chat failed: {str(e)}"}],
+                "is_error": True
+            }
+
     return [
         send_telegram_message,
         send_telegram_file,
@@ -2234,5 +2481,10 @@ Parameters:
         custom_command_update,
         custom_command_delete,
         custom_command_rename,
-        custom_command_list_media
+        custom_command_list_media,
+        # OpenAI Research Tools
+        openai_web_search,
+        openai_deep_analyze,
+        openai_research,
+        openai_chat
     ]
