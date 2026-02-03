@@ -19,6 +19,10 @@ This section is dynamically populated at runtime.
 
 {storage_info}
 
+## What I Know About This User
+
+{user_memories}
+
 ## Previous Context Summary
 
 {context_summary}

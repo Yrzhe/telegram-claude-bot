@@ -356,7 +356,8 @@ class TelegramAgentClient:
                 storage_info=self.storage_info,
                 context_summary=self.context_summary,
                 custom_skills_content=self.custom_skills_content,
-                topic_context=self.topic_context
+                topic_context=self.topic_context,
+                user_data_dir=str(self.working_directory)
             )
             return prompt
         except Exception as e:
