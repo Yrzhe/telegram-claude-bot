@@ -7,7 +7,7 @@ import random
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
-from telegram import Update, ReactionTypeEmoji
+from telegram import Update, ReactionTypeEmoji, BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 from telegram.constants import ChatAction
 from telegram.ext import (
     ContextTypes,
@@ -323,6 +323,53 @@ def setup_handlers(
         config = user_manager.get_user_config(user_id)
         return config.enabled
 
+    # ===== Dynamic Bot Commands Menu =====
+    # Track which users have had their commands set
+    _commands_set_for_users: set[int] = set()
+
+    # Common commands for all users
+    USER_COMMANDS = [
+        BotCommand("start", "Show help and usage info"),
+        BotCommand("help", "Show help info"),
+        BotCommand("ls", "List directory contents"),
+        BotCommand("storage", "View storage usage"),
+        BotCommand("status", "View session status (tokens, cost)"),
+        BotCommand("session", "View current session info"),
+        BotCommand("new", "Start new session (clear context)"),
+        BotCommand("compact", "Compress context (preserve memory)"),
+        BotCommand("env", "Manage environment variables"),
+        BotCommand("packages", "Manage Python packages"),
+        BotCommand("schedule", "Manage scheduled tasks"),
+        BotCommand("skill", "Manage custom skills"),
+        BotCommand("voice", "Voice transcription settings"),
+        BotCommand("del", "Delete files or directories"),
+    ]
+
+    # Additional commands for admins
+    ADMIN_COMMANDS = USER_COMMANDS + [
+        BotCommand("admin", "Admin: user management, custom commands"),
+    ]
+
+    async def setup_user_commands(bot, user_id: int):
+        """
+        Set up bot command menu for a specific user.
+        Admin users see additional commands.
+        """
+        # Skip if already set for this user in this session
+        if user_id in _commands_set_for_users:
+            return
+
+        try:
+            commands = ADMIN_COMMANDS if is_admin(user_id) else USER_COMMANDS
+            await bot.set_my_commands(
+                commands=commands,
+                scope=BotCommandScopeChat(chat_id=user_id)
+            )
+            _commands_set_for_users.add(user_id)
+            logger.debug(f"Set {'admin' if is_admin(user_id) else 'user'} commands for {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to set commands for user {user_id}: {e}")
+
     async def handle_unauthorized_user(update, context):
         """处理未授权用户：通知管理员 + 发送推特联系提示"""
         user = update.effective_user
@@ -611,6 +658,9 @@ def setup_handlers(
         if not can_access(user_id):
             await handle_unauthorized_user(update, context)
             return
+
+        # Set up personalized command menu for this user
+        await setup_user_commands(context.bot, user_id)
 
         # 更新用户信息（用户名可能会变化）
         user = update.effective_user
@@ -2068,6 +2118,12 @@ Session Statistics:
                 target_user = int(args[1])
                 if user_manager.set_user_enabled(target_user, True):
                     await update.message.reply_text(t("USER_ENABLED", user_id=target_user))
+                    # Set up command menu for newly enabled user
+                    _commands_set_for_users.discard(target_user)  # Clear cache to force refresh
+                    try:
+                        await setup_user_commands(context.bot, target_user)
+                    except Exception as e:
+                        logger.debug(f"Could not set commands for enabled user {target_user}: {e}")
                 else:
                     await update.message.reply_text(t("OPERATION_FAILED"))
             except ValueError:
@@ -2542,6 +2598,9 @@ Session Statistics:
         if not can_access(user_id):
             await handle_unauthorized_user(update, context)
             return
+
+        # Set up personalized command menu for this user (if not already done)
+        await setup_user_commands(context.bot, user_id)
 
         user_message = update.message.text or ""
 

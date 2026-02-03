@@ -4,6 +4,37 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Dynamic Bot Commands Menu
+
+### Overview
+Implemented dynamic command menu that shows different commands based on user role. Admin users see additional management commands while regular users see only standard commands.
+
+### New Features
+
+**Role-Based Command Menu**:
+- Regular users see standard commands (ls, storage, session, etc.)
+- Admin users see additional `/admin` command
+- Commands are set per-user using Telegram's BotCommandScopeChat
+
+**Auto-Setup**:
+- Command menu is automatically set on first user interaction (/start or message)
+- When a user is enabled via `/admin enable`, their command menu is set up immediately
+- Commands are cached per session to avoid redundant API calls
+
+### Technical Details
+
+**User Commands** (14 commands):
+- start, help, ls, storage, status, session
+- new, compact, env, packages, schedule, skill, voice, del
+
+**Admin Commands** (15 commands):
+- All user commands plus `/admin`
+
+### Modified Files
+- `bot/handlers.py` - Added dynamic command menu setup logic
+
+---
+
 ## [2026-02-03] OpenAI Research Tools Integration
 
 ### Overview
