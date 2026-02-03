@@ -220,9 +220,8 @@ def create_telegram_tools(
             }
 
         try:
-            # Clean markdown formatting for Telegram
-            cleaned_message = clean_markdown_for_telegram(message)
-            await send_message_callback(cleaned_message)
+            # Send raw message - message_queue will handle MarkdownV2 conversion
+            await send_message_callback(message)
             return {
                 "content": [{"type": "text", "text": t("MESSAGE_SENT", preview=message[:50])}]
             }
