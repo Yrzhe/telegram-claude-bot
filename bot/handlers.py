@@ -2064,6 +2064,9 @@ Session Statistics:
                 f"{t('ADMIN_USERSTATS')}\n"
                 f"{t('ADMIN_HISTORY')}\n"
                 f"{t('ADMIN_CLEANUP')}\n\n"
+                "📢 广播管理\n"
+                "/admin broadcast <消息> - 向所有用户发送公告\n"
+                "/admin refresh_menu - 刷新所有用户的命令菜单\n\n"
                 "🎯 自定义命令管理\n"
                 "/admin command - 查看命令管理帮助"
             )
@@ -2249,6 +2252,67 @@ Session Statistics:
                     name = config.notes or str(uid)
                     text += f"  {name}: {t('DELETED_RECORDS', count=count)}\n"
                 await update.message.reply_text(text)
+
+        # ===== 广播管理 =====
+        elif args[0] == 'broadcast' and len(args) >= 2:
+            message_text = ' '.join(args[1:])
+            users = user_manager.get_all_users_info()
+            enabled_users = [u for u in users if u['enabled']]
+
+            if not enabled_users:
+                await update.message.reply_text("没有已启用的用户")
+                return
+
+            await update.message.reply_text(f"📢 正在向 {len(enabled_users)} 个用户发送广播...")
+
+            success_count = 0
+            fail_count = 0
+            for u in enabled_users:
+                try:
+                    await context.bot.send_message(
+                        chat_id=u['user_id'],
+                        text=f"📢 系统公告\n\n{message_text}"
+                    )
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(f"广播发送失败 {u['user_id']}: {e}")
+                    fail_count += 1
+
+            await update.message.reply_text(
+                f"📢 广播完成\n\n"
+                f"✅ 成功: {success_count}\n"
+                f"❌ 失败: {fail_count}"
+            )
+
+        elif args[0] == 'refresh_menu':
+            users = user_manager.get_all_users_info()
+            enabled_users = [u for u in users if u['enabled']]
+
+            if not enabled_users:
+                await update.message.reply_text("没有已启用的用户")
+                return
+
+            await update.message.reply_text(f"🔄 正在刷新 {len(enabled_users)} 个用户的命令菜单...")
+
+            # Clear the cache to force refresh
+            _commands_set_for_users.clear()
+
+            success_count = 0
+            fail_count = 0
+            for u in enabled_users:
+                try:
+                    await setup_user_commands(context.bot, u['user_id'])
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(f"刷新命令菜单失败 {u['user_id']}: {e}")
+                    fail_count += 1
+
+            await update.message.reply_text(
+                f"🔄 命令菜单刷新完成\n\n"
+                f"✅ 成功: {success_count}\n"
+                f"❌ 失败: {fail_count}\n\n"
+                f"用户输入 / 即可看到新菜单"
+            )
 
         # ===== 自定义命令管理 =====
         elif args[0] == 'command' or args[0] == 'cmd':

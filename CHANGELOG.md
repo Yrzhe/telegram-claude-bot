@@ -4,6 +4,27 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Admin Broadcast and Menu Refresh
+
+### Overview
+Added admin commands to broadcast messages to all users and refresh command menus.
+
+### New Features
+
+**Broadcast Command**:
+- `/admin broadcast <message>` - Send announcement to all enabled users
+- Shows success/failure count after broadcast
+
+**Menu Refresh Command**:
+- `/admin refresh_menu` - Refresh command menus for all enabled users
+- Useful after bot updates to push new commands to users
+- Users just need to type `/` to see updated menu
+
+### Modified Files
+- `bot/handlers.py` - Added broadcast and refresh_menu commands
+
+---
+
 ## [2026-02-03] Dynamic Bot Commands Menu
 
 ### Overview
