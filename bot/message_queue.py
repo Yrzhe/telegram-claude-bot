@@ -6,6 +6,8 @@ from typing import Any, Callable, Awaitable, Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from .agent.tools import convert_to_markdown_v2
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,8 +132,14 @@ class MessageQueueManager:
         self._lock = asyncio.Lock()
 
     async def _raw_send_message(self, user_id: int, text: str) -> None:
-        """Raw message send (directly to Telegram)."""
-        await self.bot.send_message(chat_id=user_id, text=text)
+        """Raw message send (directly to Telegram) with MarkdownV2 support."""
+        formatted_text = convert_to_markdown_v2(text)
+        try:
+            await self.bot.send_message(chat_id=user_id, text=formatted_text, parse_mode="MarkdownV2")
+        except Exception as e:
+            # Fallback to plain text if MarkdownV2 parsing fails
+            logger.debug(f"MarkdownV2 parse failed for user {user_id}, falling back to plain text: {e}")
+            await self.bot.send_message(chat_id=user_id, text=text)
 
     async def _raw_send_file(self, user_id: int, file_path: str, caption: Optional[str]) -> bool:
         """Raw file send (directly to Telegram). Returns False if file not found."""

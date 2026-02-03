@@ -11,32 +11,121 @@ from ..i18n import t
 logger = logging.getLogger(__name__)
 
 
-def clean_markdown_for_telegram(text: str) -> str:
+# Characters that need escaping in MarkdownV2 (outside of code blocks)
+MARKDOWN_V2_SPECIAL_CHARS = r'_*[]()~`>#+-=|{}.!'
+
+
+def escape_markdown_v2(text: str) -> str:
+    """Escape special characters for MarkdownV2 format."""
+    for char in MARKDOWN_V2_SPECIAL_CHARS:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
+def convert_to_markdown_v2(text: str) -> str:
     """
-    Clean Markdown formatting that Telegram doesn't support.
+    Convert standard Markdown to Telegram MarkdownV2 format.
 
-    Removes:
-    - **bold** and __bold__ → text
-    - *italic* and _italic_ → text
+    Converts:
+    - **bold** → *bold*
+    - *italic* → _italic_
+    - `code` → `code`
+    - ```code``` → ```code```
+    - [text](url) → [text](url)
 
-    Keeps:
-    - # headings
-    - - bullet points
-    - 1. numbered lists
+    Also escapes special characters in plain text.
     """
-    # Remove bold: **text** or __text__
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-    text = re.sub(r'__(.+?)__', r'\1', text)
+    if not text:
+        return text
 
-    # Remove italic: *text* (but not **)
-    # Match single * not followed/preceded by another *
-    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'\1', text)
+    # Store code blocks and inline code to protect them
+    code_blocks = []
+    inline_codes = []
 
-    # Remove italic: _text_ (be careful with snake_case)
-    # Only match _ at word boundaries
-    text = re.sub(r'(?<![a-zA-Z0-9])_([^_]+?)_(?![a-zA-Z0-9])', r'\1', text)
+    # Extract code blocks first (```...```)
+    def save_code_block(match):
+        code_blocks.append(match.group(0))
+        return f'\x00CODEBLOCK{len(code_blocks) - 1}\x00'
+
+    text = re.sub(r'```[\s\S]*?```', save_code_block, text)
+
+    # Extract inline code (`...`)
+    def save_inline_code(match):
+        inline_codes.append(match.group(0))
+        return f'\x00INLINECODE{len(inline_codes) - 1}\x00'
+
+    text = re.sub(r'`[^`]+`', save_inline_code, text)
+
+    # Extract links to protect them [text](url)
+    links = []
+
+    def save_link(match):
+        link_text = match.group(1)
+        link_url = match.group(2)
+        # Escape special chars in link text, but not in URL
+        escaped_text = escape_markdown_v2(link_text)
+        # In URL, only escape ) and \
+        escaped_url = link_url.replace('\\', '\\\\').replace(')', '\\)')
+        links.append(f'[{escaped_text}]({escaped_url})')
+        return f'\x00LINK{len(links) - 1}\x00'
+
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', save_link, text)
+
+    # Extract bold text **text** and convert to *text*
+    bolds = []
+
+    def save_bold(match):
+        content = match.group(1)
+        # Escape content but not the * markers
+        escaped_content = escape_markdown_v2(content)
+        bolds.append(f'*{escaped_content}*')
+        return f'\x00BOLD{len(bolds) - 1}\x00'
+
+    text = re.sub(r'\*\*(.+?)\*\*', save_bold, text)
+
+    # Extract italic text *text* and convert to _text_
+    italics = []
+
+    def save_italic(match):
+        content = match.group(1)
+        escaped_content = escape_markdown_v2(content)
+        italics.append(f'_{escaped_content}_')
+        return f'\x00ITALIC{len(italics) - 1}\x00'
+
+    # Match single * not preceded/followed by another *
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', save_italic, text)
+
+    # Now escape all remaining special characters in plain text
+    text = escape_markdown_v2(text)
+
+    # Restore all protected elements
+    for i, code in enumerate(code_blocks):
+        text = text.replace(f'\x00CODEBLOCK{i}\x00', code)
+
+    for i, code in enumerate(inline_codes):
+        text = text.replace(f'\x00INLINECODE{i}\x00', code)
+
+    for i, link in enumerate(links):
+        text = text.replace(f'\\x00LINK{i}\\x00', link)
+        text = text.replace(f'\x00LINK{i}\x00', link)
+
+    for i, bold in enumerate(bolds):
+        text = text.replace(f'\\x00BOLD{i}\\x00', bold)
+        text = text.replace(f'\x00BOLD{i}\x00', bold)
+
+    for i, italic in enumerate(italics):
+        text = text.replace(f'\\x00ITALIC{i}\\x00', italic)
+        text = text.replace(f'\x00ITALIC{i}\x00', italic)
 
     return text
+
+
+def clean_markdown_for_telegram(text: str) -> str:
+    """
+    Clean Markdown formatting for Telegram (legacy function).
+    Now redirects to MarkdownV2 conversion.
+    """
+    return convert_to_markdown_v2(text)
 
 # Global config storage (not accessible by Agent)
 _mistral_api_key: str | None = None

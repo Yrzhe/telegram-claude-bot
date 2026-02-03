@@ -4,6 +4,36 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] MarkdownV2 Rich Text Support
+
+### Overview
+Added Telegram MarkdownV2 format support for rich text display. Claude's markdown output is now converted to Telegram's native format.
+
+### New Features
+
+**Rich Text Formatting**:
+- `**bold**` → *bold* (displayed as bold)
+- `*italic*` → _italic_ (displayed as italic)
+- `` `code` `` → `code` (displayed as monospace)
+- `[text](url)` → clickable links
+- Code blocks preserved with syntax highlighting
+
+**Fallback Mechanism**:
+- If MarkdownV2 parsing fails, automatically falls back to plain text
+- Ensures messages are always delivered
+
+### Technical Details
+- Added `convert_to_markdown_v2()` function in `bot/agent/tools.py`
+- Special characters escaped properly for MarkdownV2
+- Code blocks and inline code protected during conversion
+
+### Modified Files
+- `bot/agent/tools.py` - Added MarkdownV2 conversion function
+- `bot/handlers.py` - Updated send_long_message with MarkdownV2 support
+- `bot/message_queue.py` - Updated message queue with MarkdownV2 support
+
+---
+
 ## [2026-02-03] Admin Broadcast and Menu Refresh
 
 ### Overview

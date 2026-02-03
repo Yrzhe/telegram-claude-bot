@@ -21,7 +21,7 @@ from .agent import TelegramAgentClient, create_sub_agent
 from .agent.message_handler import get_message_handler
 from .agent.task_manager import TaskManager, SubAgentTask
 from .agent.review import create_review_callback
-from .agent.tools import clean_markdown_for_telegram
+from .agent.tools import clean_markdown_for_telegram, convert_to_markdown_v2
 from .prompt_builder import build_sub_agent_prompt
 from .user import UserManager
 from .session import SessionManager, ChatLogger
@@ -69,12 +69,29 @@ async def send_long_message(update: Update, text: str, caption: str | None = Non
     if should_skip_response(text):
         return
 
-    # Clean markdown formatting for Telegram
-    text = clean_markdown_for_telegram(text)
+    # Convert to MarkdownV2 format
+    formatted_text = convert_to_markdown_v2(text)
 
-    if len(text) <= MAX_MESSAGE_LENGTH:
-        await update.message.reply_text(text)
+    if len(formatted_text) <= MAX_MESSAGE_LENGTH:
+        try:
+            await update.message.reply_text(formatted_text, parse_mode="MarkdownV2")
+        except Exception as e:
+            # Fallback to plain text if MarkdownV2 parsing fails
+            logger.debug(f"MarkdownV2 parse failed, falling back to plain text: {e}")
+            # Send original text without formatting
+            plain_text = text
+            if len(plain_text) <= MAX_MESSAGE_LENGTH:
+                await update.message.reply_text(plain_text)
+            else:
+                file_bytes = BytesIO(plain_text.encode('utf-8'))
+                file_bytes.name = "response.txt"
+                await update.message.reply_document(
+                    document=file_bytes,
+                    caption=caption or t("LONG_RESPONSE_CAPTION"),
+                    filename="response.txt"
+                )
     else:
+        # For long messages, send as file (use original text for readability)
         file_bytes = BytesIO(text.encode('utf-8'))
         file_bytes.name = "response.txt"
         await update.message.reply_document(
