@@ -4,6 +4,19 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Add Persistent Mini App Menu Button
+
+### Changes
+- Added `MenuButtonWebApp` to provide a persistent entry point for the Mini App dashboard
+- The menu button appears next to the text input field (bottom-left corner)
+- Button labeled "📱 Dashboard" opens the Mini App when tapped
+- Menu button is automatically set up when users interact with the bot
+
+### Modified Files
+- `bot/handlers.py`: Added `setup_menu_button()` function and integrated it with existing user setup flow
+
+---
+
 ## [2026-02-03] Mini App Complete Implementation - All Phases Done
 
 ### Overview

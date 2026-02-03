@@ -7,7 +7,7 @@ import random
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
-from telegram import Update, ReactionTypeEmoji, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, ReactionTypeEmoji, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp
 from telegram.constants import ChatAction
 from telegram.ext import (
     ContextTypes,
@@ -389,6 +389,35 @@ def setup_handlers(
         except Exception as e:
             logger.warning(f"Failed to set commands for user {user_id}: {e}")
 
+    # Track which users have had their menu button set
+    _menu_button_set_for_users: set[int] = set()
+
+    async def setup_menu_button(bot, user_id: int):
+        """
+        Set up the Mini App menu button for a specific user.
+        This adds a persistent button next to the text input field.
+        """
+        if not mini_app_url:
+            return  # Mini App not configured
+
+        # Skip if already set for this user in this session
+        if user_id in _menu_button_set_for_users:
+            return
+
+        try:
+            menu_button = MenuButtonWebApp(
+                text="📱 Dashboard",
+                web_app=WebAppInfo(url=mini_app_url)
+            )
+            await bot.set_chat_menu_button(
+                chat_id=user_id,
+                menu_button=menu_button
+            )
+            _menu_button_set_for_users.add(user_id)
+            logger.debug(f"Set Mini App menu button for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to set menu button for user {user_id}: {e}")
+
     async def handle_unauthorized_user(update, context):
         """处理未授权用户：通知管理员 + 发送推特联系提示"""
         user = update.effective_user
@@ -680,6 +709,9 @@ def setup_handlers(
 
         # Set up personalized command menu for this user
         await setup_user_commands(context.bot, user_id)
+
+        # Set up Mini App menu button
+        await setup_menu_button(context.bot, user_id)
 
         # 更新用户信息（用户名可能会变化）
         user = update.effective_user
@@ -2154,8 +2186,10 @@ Session Statistics:
                     await update.message.reply_text(t("USER_ENABLED", user_id=target_user))
                     # Set up command menu for newly enabled user
                     _commands_set_for_users.discard(target_user)  # Clear cache to force refresh
+                    _menu_button_set_for_users.discard(target_user)  # Clear menu button cache
                     try:
                         await setup_user_commands(context.bot, target_user)
+                        await setup_menu_button(context.bot, target_user)
                     except Exception as e:
                         logger.debug(f"Could not set commands for enabled user {target_user}: {e}")
                 else:
@@ -2327,12 +2361,14 @@ Session Statistics:
 
             # Clear the cache to force refresh
             _commands_set_for_users.clear()
+            _menu_button_set_for_users.clear()
 
             success_count = 0
             fail_count = 0
             for u in enabled_users:
                 try:
                     await setup_user_commands(context.bot, u['user_id'])
+                    await setup_menu_button(context.bot, u['user_id'])
                     success_count += 1
                 except Exception as e:
                     logger.warning(f"刷新命令菜单失败 {u['user_id']}: {e}")
@@ -2696,6 +2732,9 @@ Session Statistics:
 
         # Set up personalized command menu for this user (if not already done)
         await setup_user_commands(context.bot, user_id)
+
+        # Set up Mini App menu button (if not already done)
+        await setup_menu_button(context.bot, user_id)
 
         user_message = update.message.text or ""
 
