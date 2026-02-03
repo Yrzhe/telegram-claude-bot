@@ -825,6 +825,22 @@ def setup_handlers(
                 # 归档日志（保存总结 + 原始记录）
                 chat_logger.archive_session_log(user_id, session_id, summary)
 
+                # 运行记忆分析（后处理）
+                try:
+                    from .memory import run_memory_analysis
+                    user_dir = user_manager.get_user_directory(user_id)
+                    _, memory_notification = await run_memory_analysis(
+                        user_id=user_id,
+                        user_data_dir=user_dir,
+                        conversation=chat_log,
+                        api_config=api_config,
+                    )
+                    if memory_notification:
+                        # 发送记忆提醒
+                        await update.message.reply_text(memory_notification, parse_mode='HTML')
+                except Exception as e:
+                    logger.error(f"记忆分析失败: {e}")
+
                 await thinking_msg.edit_text(
                     f"✅ 会话已结束\n\n📋 对话总结已保存\n\n{summary[:500]}{'...' if len(summary) > 500 else ''}"
                 )
@@ -1053,6 +1069,34 @@ Session Statistics:
 
         except Exception as e:
             logger.error(f"Auto-compact failed for user {user_id}: {e}")
+
+    async def _run_background_memory_analysis(user_id: int, bot, chat_log: str):
+        """Run memory analysis in background (non-blocking)"""
+        if not chat_log or len(chat_log) < 100:
+            return
+
+        try:
+            from .memory import run_memory_analysis
+
+            user_dir = user_manager.get_user_directory(user_id)
+            _, notification = await run_memory_analysis(
+                user_id=user_id,
+                user_data_dir=user_dir,
+                conversation=chat_log,
+                api_config=api_config,
+            )
+
+            if notification:
+                # Send notification to user
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=notification,
+                    parse_mode='HTML'
+                )
+                logger.info(f"Sent periodic memory analysis notification to user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Background memory analysis failed for user {user_id}: {e}")
 
     async def _generate_chat_summary(
         user_id: int,
@@ -2702,6 +2746,15 @@ Session Statistics:
                 # Check if auto-compaction is needed (threshold: 150K tokens)
                 if session_manager.needs_compaction(user_id, threshold_tokens=150000):
                     await _auto_compact_session(user_id, update)
+
+                # Check if periodic memory analysis is needed (every 10 messages)
+                if session_info and session_info.message_count > 0 and session_info.message_count % 10 == 0:
+                    # Run memory analysis in background (don't block message flow)
+                    asyncio.create_task(_run_background_memory_analysis(
+                        user_id=user_id,
+                        bot=context.bot,
+                        chat_log=chat_logger.get_current_session_log(user_id, response.session_id)
+                    ))
 
             # Record chat history (JSON format)
             user_manager.add_chat_record(

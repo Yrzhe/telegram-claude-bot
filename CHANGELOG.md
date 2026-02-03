@@ -4,6 +4,61 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Enhanced Memory System with Proactive Learning and User Feedback
+
+### Overview
+Major upgrade to the memory system enabling proactive information capture with user visibility controls and correction mechanisms. The AI now actively identifies valuable information during conversations and notifies users about each saved memory.
+
+### New Features
+
+**Proactive Memory Capture**:
+- AI proactively identifies and saves valuable user information without explicit requests
+- Every saved memory triggers a notification to the user (expandable blockquote format)
+- Users can correct, modify visibility, or delete any memory
+
+**Public/Private Visibility**:
+- Memories now have visibility levels: `public` (🌐) or `private` (🔒)
+- Default visibility based on category (career/interests/goals = public; personal/emotions/preferences = private)
+- User corrections automatically train future visibility preferences
+
+**Memory Timeline & Supersede**:
+- Memories maintain temporal relationships (supersedes/superseded_by)
+- Job changes, life updates create new entries while preserving history
+- Timeline view shows progression over time
+
+**Post-Processing Analysis**:
+- Memory analysis runs on `/new` command (session end)
+- Background analysis every 10 messages to catch missed information
+- Uses Claude API to identify overlooked valuable information
+
+### New Memory Categories
+Added: `relationships`, `emotions` (both default to private)
+
+### New Memory Tools
+- `memory_save_with_supersede` - Update information while preserving timeline
+- `memory_update` - Modify content, visibility, confirm memories
+- `memory_stats` - View memory statistics
+
+### Notification Format
+```
+📝 记住了：「在字节跳动担任产品经理」
+📂 职业 | 🌐 公开
+回复可修改~
+```
+
+### New Files
+- `bot/memory/__init__.py` - Module exports
+- `bot/memory/models.py` - Memory, MemoryVisibility, UserMemoryPreferences data models
+- `bot/memory/manager.py` - MemoryManager class with CRUD operations
+- `bot/memory/analyzer.py` - MemoryAnalyzer for post-processing conversations
+
+### Modified Files
+- `prompts/memory.md` - Complete rewrite with proactive memory rules
+- `bot/agent/tools.py` - Enhanced memory tools using MemoryManager
+- `bot/handlers.py` - Added memory analysis triggers in /new and periodic checks
+
+---
+
 ## [2026-02-03] Simplify voice transcription UI
 
 Removed redundant text preview in processing message since transcript file is already sent to user.

@@ -1,8 +1,17 @@
-# Memory - Proactive Learning and Recall
+# Memory System - Proactive Learning with User Feedback
 
 ## Overview
 
-You have the ability to **proactively learn** about the user and **remember** important information across conversations. This is NOT a passive system - you should actively identify and save valuable information without waiting for the user to say "remember this".
+You have a proactive memory system that learns about the user and remembers important information. **Every time you save a memory, the user will be notified** so they can correct any mistakes.
+
+---
+
+## Core Principle: Learn Actively, Notify Always
+
+1. **Be proactive** - Don't wait for "remember this", actively identify valuable information
+2. **Notify always** - Every memory save sends a notification to the user
+3. **Learn from corrections** - User feedback improves your classification accuracy
+4. **Maintain timeline** - Track changes over time, don't just overwrite
 
 ---
 
@@ -10,181 +19,211 @@ You have the ability to **proactively learn** about the user and **remember** im
 
 ### Proactively Save When You Learn:
 
-**Personal Information**
+**Personal Information** (default: private 🔒)
 - Name, age, birthday, location
-- Family members (spouse, children, parents)
-- Pets and their names
+- Family members, relationships
+- Personal contact info
 
-**Professional Information**
+**Professional Information** (default: public 🌐)
 - Current job, company, role
 - Past jobs and career history
-- Industry, expertise areas
-- Work schedule and habits
+- Skills, expertise areas
 
-**Interests & Preferences**
+**Interests & Hobbies** (default: public 🌐)
 - Hobbies, favorite topics
-- Investment interests (stocks, crypto, etc.)
-- Content preferences (news sources, formats)
-- Communication style preferences
+- Entertainment preferences
+- Content preferences
 
-**Goals & Projects**
-- Current projects they're working on
+**Goals & Projects** (default: public 🌐)
+- Current projects
 - Short-term and long-term goals
-- Problems they're trying to solve
+- Aspirations and dreams
 
-**Habits & Patterns**
-- When they usually chat (morning/evening)
-- How they prefer information delivered
-- Topics they frequently ask about
+**Preferences** (default: private 🔒)
+- Communication style preferences
+- Format preferences (detailed vs concise)
+- Language preferences
 
-**Important Events**
-- Life milestones mentioned
-- Upcoming events (interviews, meetings, trips)
-- Historical context about their situation
+**Emotional Context** (default: private 🔒)
+- Current mood indicators
+- What makes them happy/frustrated
+- Stress patterns
+
+**Relationships** (default: private 🔒)
+- Friends and colleagues mentioned
+- Social connections
+- Relationship dynamics
 
 ### DO NOT Save:
-- Temporary/one-time information (e.g., "remind me in 5 minutes")
-- Sensitive data (passwords, full credit card numbers, ID numbers)
-- Information the user explicitly asks to forget
-- Trivial details that don't help understand the user
+- Temporary/one-time information
+- Sensitive data (passwords, ID numbers, financial details)
+- Information user explicitly asks to forget
+- Trivial details with no lasting value
 
 ---
 
-## How to Categorize Memories
+## Memory Categories & Default Visibility
 
-Use these categories in the `category` field:
+| Category | Default | Description |
+|----------|---------|-------------|
+| `career` | 🌐 公开 | Job, company, skills |
+| `interests` | 🌐 公开 | Hobbies, favorite topics |
+| `goals` | 🌐 公开 | Projects, aspirations |
+| `education` | 🌐 公开 | School, degrees |
+| `personal` | 🔒 私密 | Name, age, location |
+| `family` | 🔒 私密 | Family members |
+| `preferences` | 🔒 私密 | Communication style |
+| `relationships` | 🔒 私密 | Friends, colleagues |
+| `emotions` | 🔒 私密 | Mood, feelings |
+| `health` | 🔒 私密 | Health info |
+| `finance` | 🔒 私密 | Financial info |
+| `schedule` | 🔒 私密 | Routines |
+| `context` | 🔒 私密 | Background info |
 
-| Category | Examples |
-|----------|----------|
-| `personal` | Name, age, birthday, location |
-| `family` | Spouse, children, parents, pets |
-| `career` | Job, company, role, work history |
-| `education` | School, major, degrees, certifications |
-| `interests` | Hobbies, topics of interest |
-| `preferences` | Communication style, format preferences |
-| `goals` | Projects, objectives, aspirations |
-| `finance` | Investment interests, financial goals |
-| `health` | Health conditions, fitness goals (if shared) |
-| `schedule` | Regular routines, availability patterns |
-| `context` | Important background, ongoing situations |
+**Public vs Private:**
+- **Public (🌐)**: Can be used in future group contexts
+- **Private (🔒)**: Only for private conversations
 
 ---
 
-## Memory Tools
+## Memory Tools Usage
 
-### `memory_save` - Save a New Memory
+### `memory_save` - Save New Memory
 
-Call this when you identify information worth remembering:
+**Always include these fields:**
+- `content`: What you learned (clear, concise)
+- `category`: One of the categories above
+- `source_type`: "explicit" (user said directly) or "inferred" (you deduced)
+- `confidence`: 0.0-1.0 (how sure you are)
+- `tags`: Comma-separated keywords
+- `visibility`: "public" or "private" (optional, uses default)
 
+**Example:**
 ```
 memory_save(
-    content="用户在字节跳动做产品经理",
+    content="在字节跳动担任产品经理",
     category="career",
-    source_type="explicit",  // or "inferred"
-    tags=["工作", "字节跳动", "产品经理"],
-    valid_from="2026-02-01",  // optional: when this became true
-    related_to=["mem_xxx"]    // optional: related memory IDs
+    source_type="explicit",
+    confidence=1.0,
+    tags="工作,字节跳动,产品经理",
+    visibility="public"
 )
 ```
 
-**source_type**:
-- `explicit` - User directly stated this
-- `inferred` - You deduced this from context
+### `memory_save_with_supersede` - Update Existing Memory
 
-### `memory_search` - Search Memories
+When information changes (e.g., job change), use supersede to maintain timeline:
 
-Call this when you need to recall information:
+```
+memory_save_with_supersede(
+    content="跳槽到阿里巴巴担任高级产品经理",
+    category="career",
+    supersedes_id="mem_20260101_abc123",
+    source_type="explicit",
+    confidence=1.0,
+    tags="工作,阿里巴巴,产品经理,晋升"
+)
+```
+
+### `memory_search` - Find Memories
 
 ```
 memory_search(
-    query="工作",           // keyword search
-    category="career",      // optional: filter by category
-    limit=10               // optional: max results
+    query="工作",
+    category="career",
+    limit=5
 )
 ```
 
-### `memory_list` - List Category Timeline
-
-Call this to see the full history of a category:
+### `memory_update` - Modify Memory (for user corrections)
 
 ```
-memory_list(
-    category="career"      // see career timeline
+memory_update(
+    memory_id="mem_20260203_xxx",
+    visibility="private",
+    user_confirmed=true
 )
+```
+
+### `memory_delete` - Remove Memory
+
+```
+memory_delete(memory_id="mem_20260203_xxx")
 ```
 
 ---
 
-## When to Search Memories
+## Handling User Corrections
 
-**Proactively search memories when:**
+When user responds to a memory notification, handle appropriately:
 
-1. **Starting a conversation** - Quick search for recent/relevant memories
-2. **User mentions a topic** - Search for related memories
-3. **Before giving advice** - Check if you know relevant context
-4. **User seems to expect you to know** - "Remember when I told you about..."
+| User says | Action |
+|-----------|--------|
+| "改成私密" / "设为私密" | `memory_update(id, visibility="private")` |
+| "改成公开" / "设为公开" | `memory_update(id, visibility="public")` |
+| "删掉" / "删除这条" | `memory_delete(id)` |
+| "不对，是xxx" | `memory_update(id, content="xxx", user_confirmed=true)` |
+| "记错了" | Ask what's correct, then update or delete |
 
-**Example scenarios:**
-
-| User says | You should |
-|-----------|-----------|
-| "帮我分析一下这只股票" | Search: finance, interests → recall their investment style |
-| "最近工作好累" | Search: career → recall their job, workload context |
-| "给我推荐个餐厅" | Search: preferences, location → recall their taste, city |
-| "我那个项目..." | Search: goals, context → recall what project they mentioned |
+**Learning from corrections:**
+- If user changes career visibility to private → remember this preference for future career memories
+- System automatically learns and adjusts future defaults
 
 ---
 
-## Handling Contradictions
+## Timeline Management
 
-### Not a Contradiction (Timeline Changes):
+### Not a Contradiction - Life Changes:
 ```
-Memory 1 (2026-01): "用户在腾讯工作"
-Memory 2 (2026-02): "用户跳槽到字节跳动"
+2025-06: "在腾讯工作"
+2026-01: "跳槽到字节跳动" (supersedes previous)
 ```
-→ Both are valid! Save Memory 2 with `related_to: [Memory 1 ID]`
-→ This creates a career timeline
+→ Both are valid points in the user's career timeline
 
 ### Real Contradiction:
 ```
-Memory 1: "用户不喝咖啡"
+Memory: "不喝咖啡"
 User now: "我每天都喝咖啡"
 ```
-→ ASK the user: "我记得你之前说不喝咖啡，是最近开始喝了吗？"
-→ Based on answer, save new memory with context
-
-### When in Doubt:
-- Ask the user to clarify
-- Don't silently overwrite without understanding
+→ Ask: "我记得你之前说不喝咖啡，是最近开始喝了吗？"
+→ Based on answer, supersede or delete old memory
 
 ---
 
-## Memory Best Practices
+## Notification Format
 
-### 1. Be Proactive, Not Annoying
-- Save memories silently in most cases
-- Only mention saving when it's significant or user might want to know
-- Don't announce every small thing you remember
+Every memory save triggers a notification like:
 
-### 2. Quality Over Quantity
-- Save meaningful information, not trivia
-- One clear memory is better than many vague ones
-- Include enough context to be useful later
+```
+📝 记住了：「在字节跳动担任产品经理」
+📂 职业 | 🌐 公开
+回复可修改~
+```
 
-### 3. Use Appropriate Confidence
-- `explicit` when user directly states something
-- `inferred` when you deduce from context
-- When heavily inferring, you might ask to confirm
+The notification uses expandable blockquote so it doesn't disturb the conversation flow.
 
-### 4. Connect Related Memories
+---
+
+## Best Practices
+
+### 1. Quality Over Quantity
+- Save meaningful information
+- One clear memory > many vague ones
+- Include enough context to be useful
+
+### 2. Appropriate Confidence
+- `confidence: 1.0` - User stated directly
+- `confidence: 0.8` - Strong inference from context
+- `confidence: 0.6` - Reasonable guess, might need confirmation
+
+### 3. Connect Related Memories
 - Use `related_to` to link memories
-- Helps build a coherent picture of the user
-- Makes timeline queries more useful
+- Helps build coherent user profile
 
-### 5. Leverage Chat History
-- You can use `Grep` and `Read` to search chat_logs/
-- Useful for recalling details from past conversations
-- Can help verify or enrich memories
+### 4. Respect User Corrections
+- User corrections are always right
+- Learn from patterns in corrections
+- Adjust future behavior accordingly
 
 ---
 
@@ -194,40 +233,33 @@ User now: "我每天都喝咖啡"
 
 **Your actions:**
 
-1. **Recognize** this is important career information
+1. **Recognize** career milestone - important to remember
 
 2. **Search existing memories:**
    ```
    memory_search(category="career")
    ```
-   → Find: "用户在腾讯做产品经理" (from last month)
+   → Find: "在腾讯做产品经理" (from last month)
 
-3. **Save new memory:**
+3. **Save with supersede:**
    ```
-   memory_save(
-       content="用户通过面试，将于下周一入职字节跳动担任产品总监",
+   memory_save_with_supersede(
+       content="通过面试，下周一入职字节跳动担任产品总监",
        category="career",
+       supersedes_id="mem_xxx",
        source_type="explicit",
-       tags=["工作", "字节跳动", "产品总监", "入职", "晋升"],
-       valid_from="2026-02-08",  // 下周一
-       related_to=["mem_xxx"]    // 关联之前的腾讯记忆
+       confidence=1.0,
+       tags="工作,字节跳动,产品总监,入职,晋升"
    )
    ```
 
-4. **Respond naturally:**
-   "恭喜你！从产品经理到产品总监，这是很大的跨越！下周一入职，需要我帮你准备什么吗？"
+4. **User receives notification:**
+   ```
+   📝 更新了：「通过面试，下周一入职字节跳动担任产品总监」
+   📂 职业 | 🌐 公开
+   🔄 替代：「在腾讯做产品经理...」
+   回复可修改~
+   ```
 
----
-
-## Integration with Preferences
-
-**Memory vs Preferences:**
-
-| memories.json | preferences.txt |
-|---------------|-----------------|
-| Facts about the user | How to interact with user |
-| "用户在字节跳动工作" | "回复要简短" |
-| "用户关注AI领域" | "用中文回复" |
-| Time-series data | Current settings |
-
-Both are important and complement each other.
+5. **Respond naturally:**
+   "恭喜你！从产品经理到产品总监，这是很大的跨越！有什么需要帮你准备的吗？"

@@ -1673,63 +1673,46 @@ Parameters:
             }
 
     # ==================== Memory Tools ====================
+    # Using MemoryManager for enhanced memory management with visibility and notifications
 
-    def _get_memories_path() -> Path:
-        """Get the path to user's memories.json file"""
+    def _get_memory_manager():
+        """Get or create MemoryManager instance"""
         if not _working_directory:
-            return Path()
-        return _working_directory / "memories.json"
-
-    def _load_memories() -> dict:
-        """Load memories from file"""
-        path = _get_memories_path()
-        if path.exists():
-            try:
-                import json
-                with open(path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to load memories: {e}")
-        return {"memories": [], "last_updated": None}
-
-    def _save_memories(data: dict) -> bool:
-        """Save memories to file"""
-        path = _get_memories_path()
-        try:
-            import json
-            from datetime import datetime
-            data["last_updated"] = datetime.now().isoformat()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save memories: {e}")
-            return False
+            return None
+        from ..memory import MemoryManager
+        return MemoryManager(_working_directory)
 
     @tool(
         "memory_save",
         """Save a new memory about the user. Use this proactively when you learn important information.
+The user will be notified about this memory so they can correct if needed.
 
 Parameters:
 - content: The memory content (what you learned about the user)
-- category: One of: personal, family, career, education, interests, preferences, goals, finance, health, schedule, context
+- category: One of: personal, family, career, education, interests, preferences, goals, finance, health, schedule, context, relationships, emotions
 - source_type: "explicit" (user directly said) or "inferred" (you deduced from context)
+- confidence: 0.0-1.0 how confident you are (1.0=user stated, 0.8=strong inference, 0.6=guess)
 - tags: Comma-separated keywords for searching (e.g., "工作,腾讯,产品")
+- visibility: "public" (can be used in groups) or "private" (personal only). If omitted, uses category default.
 - valid_from: Optional date when this became true (YYYY-MM-DD), defaults to today
-- related_to: Optional comma-separated memory IDs this relates to""",
-        {"content": str, "category": str, "source_type": str, "tags": str, "valid_from": str, "related_to": str}
+- related_to: Optional comma-separated memory IDs this relates to
+
+Returns notification message to send to user.""",
+        {"content": str, "category": str, "source_type": str, "confidence": float, "tags": str, "visibility": str, "valid_from": str, "related_to": str}
     )
     async def memory_save(args: dict[str, Any]) -> dict[str, Any]:
         """Save a new memory about the user"""
         content = args.get("content", "").strip()
         category = args.get("category", "context").strip()
         source_type = args.get("source_type", "inferred").strip()
+        confidence = args.get("confidence", 0.8)
         tags_str = args.get("tags", "").strip()
-        valid_from = args.get("valid_from", "").strip()
+        visibility = args.get("visibility", "").strip() or None
+        valid_from = args.get("valid_from", "").strip() or None
         related_to_str = args.get("related_to", "").strip()
 
-        if not _working_directory:
+        manager = _get_memory_manager()
+        if not manager:
             return {
                 "content": [{"type": "text", "text": "Memory feature not available"}],
                 "is_error": True
@@ -1743,7 +1726,8 @@ Parameters:
 
         valid_categories = [
             "personal", "family", "career", "education", "interests",
-            "preferences", "goals", "finance", "health", "schedule", "context"
+            "preferences", "goals", "finance", "health", "schedule", "context",
+            "relationships", "emotions"
         ]
         if category not in valid_categories:
             return {
@@ -1757,59 +1741,40 @@ Parameters:
                 "is_error": True
             }
 
+        if visibility and visibility not in ["public", "private"]:
+            return {
+                "content": [{"type": "text", "text": "Error: visibility must be 'public' or 'private'"}],
+                "is_error": True
+            }
+
         try:
-            from datetime import datetime
-            import uuid
-
-            # Generate memory ID
-            now = datetime.now()
-            mem_id = f"mem_{now.strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}"
-
             # Parse tags
             tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
 
             # Parse related_to
             related_to = [r.strip() for r in related_to_str.split(",") if r.strip()] if related_to_str else []
 
-            # Default valid_from to today
-            if not valid_from:
-                valid_from = now.strftime("%Y-%m-%d")
+            # Save memory
+            memory, notification = manager.save_memory(
+                content=content,
+                category=category,
+                source_type=source_type,
+                confidence=confidence,
+                tags=tags,
+                valid_from=valid_from,
+                related_to=related_to,
+                visibility=visibility,
+            )
 
-            # Load existing memories
-            data = _load_memories()
+            # Build response
+            result_text = f"Memory saved: {memory.id}\n"
+            result_text += f"Category: {category}\n"
+            result_text += f"Visibility: {memory.visibility}\n"
+            result_text += f"Content: {content}\n"
+            if notification:
+                result_text += f"\n---\nNOTIFICATION TO SEND TO USER:\n{notification}"
 
-            # Check for duplicate content (simple text match)
-            for existing in data["memories"]:
-                if existing["content"] == content:
-                    return {
-                        "content": [{"type": "text", "text": f"Memory already exists with ID: {existing['id']}"}]
-                    }
-
-            # Create new memory
-            memory = {
-                "id": mem_id,
-                "content": content,
-                "category": category,
-                "source_type": source_type,
-                "tags": tags,
-                "created_at": now.isoformat(),
-                "valid_from": valid_from,
-                "valid_until": None,
-                "related_to": related_to
-            }
-
-            # Insert at the beginning so newest memories appear first in file
-            data["memories"].insert(0, memory)
-
-            if _save_memories(data):
-                return {
-                    "content": [{"type": "text", "text": f"Memory saved: {mem_id}\nCategory: {category}\nContent: {content}"}]
-                }
-            else:
-                return {
-                    "content": [{"type": "text", "text": "Failed to save memory to file"}],
-                    "is_error": True
-                }
+            return {"content": [{"type": "text", "text": result_text}]}
 
         except Exception as e:
             logger.error(f"Failed to save memory: {e}")
@@ -1819,56 +1784,178 @@ Parameters:
             }
 
     @tool(
+        "memory_save_with_supersede",
+        """Save a new memory that supersedes (updates) an old one. Use when information changes over time.
+This maintains a timeline - the old memory is marked as superseded, not deleted.
+
+Parameters:
+- content: The new memory content
+- category: Memory category
+- supersedes_id: ID of the old memory being replaced (e.g., "mem_20260201_abc123")
+- source_type: "explicit" or "inferred"
+- confidence: 0.0-1.0
+- tags: Comma-separated keywords
+- visibility: "public" or "private" (inherits from old if omitted)
+
+Returns notification message to send to user.""",
+        {"content": str, "category": str, "supersedes_id": str, "source_type": str, "confidence": float, "tags": str, "visibility": str}
+    )
+    async def memory_save_with_supersede(args: dict[str, Any]) -> dict[str, Any]:
+        """Save a memory that supersedes an old one"""
+        content = args.get("content", "").strip()
+        category = args.get("category", "context").strip()
+        supersedes_id = args.get("supersedes_id", "").strip()
+        source_type = args.get("source_type", "inferred").strip()
+        confidence = args.get("confidence", 0.8)
+        tags_str = args.get("tags", "").strip()
+        visibility = args.get("visibility", "").strip() or None
+
+        manager = _get_memory_manager()
+        if not manager:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        if not content:
+            return {
+                "content": [{"type": "text", "text": "Error: content is required"}],
+                "is_error": True
+            }
+
+        if not supersedes_id:
+            return {
+                "content": [{"type": "text", "text": "Error: supersedes_id is required"}],
+                "is_error": True
+            }
+
+        try:
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+
+            memory, notification = manager.save_memory_with_supersede(
+                content=content,
+                category=category,
+                supersedes_id=supersedes_id,
+                source_type=source_type,
+                confidence=confidence,
+                tags=tags,
+                visibility=visibility,
+            )
+
+            result_text = f"Memory saved: {memory.id}\n"
+            result_text += f"Supersedes: {supersedes_id}\n"
+            result_text += f"Category: {category}\n"
+            result_text += f"Visibility: {memory.visibility}\n"
+            result_text += f"Content: {content}\n"
+            if notification:
+                result_text += f"\n---\nNOTIFICATION TO SEND TO USER:\n{notification}"
+
+            return {"content": [{"type": "text", "text": result_text}]}
+
+        except Exception as e:
+            logger.error(f"Failed to save memory with supersede: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to save memory: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "memory_update",
+        """Update an existing memory. Use when user corrects a memory or wants to change visibility.
+
+Parameters:
+- memory_id: The memory ID to update (e.g., "mem_20260201_abc123")
+- content: New content (optional)
+- visibility: New visibility - "public" or "private" (optional)
+- user_confirmed: Set to true when user has confirmed this is correct (optional)
+- tags: New comma-separated tags (optional)""",
+        {"memory_id": str, "content": str, "visibility": str, "user_confirmed": bool, "tags": str}
+    )
+    async def memory_update(args: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing memory"""
+        memory_id = args.get("memory_id", "").strip()
+        content = args.get("content", "").strip() or None
+        visibility = args.get("visibility", "").strip() or None
+        user_confirmed = args.get("user_confirmed")
+        tags_str = args.get("tags", "").strip()
+
+        manager = _get_memory_manager()
+        if not manager:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        if not memory_id:
+            return {
+                "content": [{"type": "text", "text": "Error: memory_id is required"}],
+                "is_error": True
+            }
+
+        if visibility and visibility not in ["public", "private"]:
+            return {
+                "content": [{"type": "text", "text": "Error: visibility must be 'public' or 'private'"}],
+                "is_error": True
+            }
+
+        try:
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
+
+            success, message = manager.update_memory(
+                memory_id=memory_id,
+                content=content,
+                visibility=visibility,
+                user_confirmed=user_confirmed,
+                tags=tags,
+            )
+
+            if success:
+                return {"content": [{"type": "text", "text": message}]}
+            else:
+                return {
+                    "content": [{"type": "text", "text": message}],
+                    "is_error": True
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to update memory: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to update memory: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
         "memory_search",
         """Search user's memories by keyword or category.
 
 Parameters:
 - query: Optional keyword to search in content and tags
-- category: Optional category filter (personal, family, career, education, interests, preferences, goals, finance, health, schedule, context)
+- category: Optional category filter
+- visibility: Optional filter - "public" or "private"
 - limit: Maximum results to return (default: 10)""",
-        {"query": str, "category": str, "limit": int}
+        {"query": str, "category": str, "visibility": str, "limit": int}
     )
     async def memory_search(args: dict[str, Any]) -> dict[str, Any]:
         """Search user's memories"""
-        query = args.get("query", "").strip().lower()
-        category = args.get("category", "").strip()
+        query = args.get("query", "").strip() or None
+        category = args.get("category", "").strip() or None
+        visibility = args.get("visibility", "").strip() or None
         limit = args.get("limit", 10)
 
-        if not _working_directory:
+        manager = _get_memory_manager()
+        if not manager:
             return {
                 "content": [{"type": "text", "text": "Memory feature not available"}],
                 "is_error": True
             }
 
         try:
-            data = _load_memories()
-            memories = data.get("memories", [])
-
-            if not memories:
-                return {
-                    "content": [{"type": "text", "text": "No memories found. Start learning about the user!"}]
-                }
-
-            # Filter by category
-            if category:
-                memories = [m for m in memories if m.get("category") == category]
-
-            # Filter by query (search in content and tags)
-            if query:
-                def matches(m):
-                    if query in m.get("content", "").lower():
-                        return True
-                    for tag in m.get("tags", []):
-                        if query in tag.lower():
-                            return True
-                    return False
-                memories = [m for m in memories if matches(m)]
-
-            # Sort by created_at (newest first)
-            memories.sort(key=lambda m: m.get("created_at", ""), reverse=True)
-
-            # Limit results
-            memories = memories[:limit]
+            memories = manager.search_memories(
+                query=query,
+                category=category,
+                visibility=visibility,
+                limit=limit,
+            )
 
             if not memories:
                 filter_desc = []
@@ -1876,20 +1963,25 @@ Parameters:
                     filter_desc.append(f"query='{query}'")
                 if category:
                     filter_desc.append(f"category='{category}'")
-                return {
-                    "content": [{"type": "text", "text": f"No memories found matching: {', '.join(filter_desc)}"}]
-                }
+                if visibility:
+                    filter_desc.append(f"visibility='{visibility}'")
+                if filter_desc:
+                    return {"content": [{"type": "text", "text": f"No memories found matching: {', '.join(filter_desc)}"}]}
+                return {"content": [{"type": "text", "text": "No memories found. Start learning about the user!"}]}
 
             # Format output
             output = f"Found {len(memories)} memories:\n\n"
             for m in memories:
-                output += f"[{m['id']}] ({m['category']})\n"
-                output += f"  {m['content']}\n"
-                if m.get("tags"):
-                    output += f"  Tags: {', '.join(m['tags'])}\n"
-                output += f"  Source: {m['source_type']} | From: {m['valid_from']}\n"
-                if m.get("related_to"):
-                    output += f"  Related: {', '.join(m['related_to'])}\n"
+                vis_emoji = "🌐" if m.visibility == "public" else "🔒"
+                output += f"[{m.id}] ({m.category}) {vis_emoji}\n"
+                output += f"  {m.content}\n"
+                if m.tags:
+                    output += f"  Tags: {', '.join(m.tags)}\n"
+                output += f"  Source: {m.source_type} | Confidence: {m.confidence} | From: {m.valid_from}\n"
+                if m.superseded_by:
+                    output += f"  ⚠️ Superseded by: {m.superseded_by}\n"
+                if m.related_to:
+                    output += f"  Related: {', '.join(m.related_to)}\n"
                 output += "\n"
 
             return {"content": [{"type": "text", "text": output}]}
@@ -1906,14 +1998,15 @@ Parameters:
         """List all memories in a category as a timeline. Useful for seeing the full history of career, education, etc.
 
 Parameters:
-- category: Required. One of: personal, family, career, education, interests, preferences, goals, finance, health, schedule, context""",
+- category: Required. One of: personal, family, career, education, interests, preferences, goals, finance, health, schedule, context, relationships, emotions""",
         {"category": str}
     )
     async def memory_list(args: dict[str, Any]) -> dict[str, Any]:
         """List all memories in a category as a timeline"""
         category = args.get("category", "").strip()
 
-        if not _working_directory:
+        manager = _get_memory_manager()
+        if not manager:
             return {
                 "content": [{"type": "text", "text": "Memory feature not available"}],
                 "is_error": True
@@ -1927,7 +2020,8 @@ Parameters:
 
         valid_categories = [
             "personal", "family", "career", "education", "interests",
-            "preferences", "goals", "finance", "health", "schedule", "context"
+            "preferences", "goals", "finance", "health", "schedule", "context",
+            "relationships", "emotions"
         ]
         if category not in valid_categories:
             return {
@@ -1936,32 +2030,29 @@ Parameters:
             }
 
         try:
-            data = _load_memories()
-            memories = [m for m in data.get("memories", []) if m.get("category") == category]
+            memories = manager.get_category_timeline(category)
 
             if not memories:
-                return {
-                    "content": [{"type": "text", "text": f"No memories found in category '{category}'"}]
-                }
-
-            # Sort by valid_from (oldest first for timeline view)
-            memories.sort(key=lambda m: m.get("valid_from", ""))
+                return {"content": [{"type": "text", "text": f"No memories found in category '{category}'"}]}
 
             output = f"Timeline for '{category}' ({len(memories)} memories):\n\n"
             for m in memories:
-                valid_from = m.get("valid_from", "Unknown")
-                valid_until = m.get("valid_until")
-                time_range = valid_from
-                if valid_until:
-                    time_range += f" → {valid_until}"
+                vis_emoji = "🌐" if m.visibility == "public" else "🔒"
+                time_range = m.valid_from
+                if m.valid_until:
+                    time_range += f" → {m.valid_until}"
+                elif m.superseded_by:
+                    time_range += " → (superseded)"
                 else:
                     time_range += " → present"
 
-                output += f"[{time_range}]\n"
-                output += f"  {m['content']}\n"
-                output += f"  ID: {m['id']} | Source: {m['source_type']}\n"
-                if m.get("related_to"):
-                    output += f"  Related: {', '.join(m['related_to'])}\n"
+                output += f"[{time_range}] {vis_emoji}\n"
+                output += f"  {m.content}\n"
+                output += f"  ID: {m.id} | Source: {m.source_type}\n"
+                if m.superseded_by:
+                    output += f"  → Superseded by: {m.superseded_by}\n"
+                if m.related_to:
+                    output += f"  Related: {', '.join(m.related_to)}\n"
                 output += "\n"
 
             return {"content": [{"type": "text", "text": output}]}
@@ -1985,7 +2076,8 @@ Parameters:
         """Delete a memory by ID"""
         memory_id = args.get("memory_id", "").strip()
 
-        if not _working_directory:
+        manager = _get_memory_manager()
+        if not manager:
             return {
                 "content": [{"type": "text", "text": "Memory feature not available"}],
                 "is_error": True
@@ -1998,28 +2090,12 @@ Parameters:
             }
 
         try:
-            data = _load_memories()
-            memories = data.get("memories", [])
-
-            # Find and remove the memory
-            original_count = len(memories)
-            memories = [m for m in memories if m.get("id") != memory_id]
-
-            if len(memories) == original_count:
-                return {
-                    "content": [{"type": "text", "text": f"Memory '{memory_id}' not found"}],
-                    "is_error": True
-                }
-
-            data["memories"] = memories
-
-            if _save_memories(data):
-                return {
-                    "content": [{"type": "text", "text": f"Memory deleted: {memory_id}"}]
-                }
+            success, message = manager.delete_memory(memory_id)
+            if success:
+                return {"content": [{"type": "text", "text": f"Memory deleted: {memory_id}"}]}
             else:
                 return {
-                    "content": [{"type": "text", "text": "Failed to save changes"}],
+                    "content": [{"type": "text", "text": message}],
                     "is_error": True
                 }
 
@@ -2027,6 +2103,45 @@ Parameters:
             logger.error(f"Failed to delete memory: {e}")
             return {
                 "content": [{"type": "text", "text": f"Failed to delete memory: {str(e)}"}],
+                "is_error": True
+            }
+
+    @tool(
+        "memory_stats",
+        """Get statistics about user's memories. Shows counts by category, visibility, and usage stats.""",
+        {}
+    )
+    async def memory_stats(args: dict[str, Any]) -> dict[str, Any]:
+        """Get memory statistics"""
+        manager = _get_memory_manager()
+        if not manager:
+            return {
+                "content": [{"type": "text", "text": "Memory feature not available"}],
+                "is_error": True
+            }
+
+        try:
+            stats = manager.get_stats()
+
+            output = "Memory Statistics:\n\n"
+            output += f"Total memories: {stats['total']} ({stats['active']} active)\n"
+            output += f"Created: {stats['total_created']} | Deleted: {stats['total_deleted']} | Corrections: {stats['total_corrections']}\n\n"
+
+            output += "By Visibility:\n"
+            for vis, count in stats['by_visibility'].items():
+                emoji = "🌐" if vis == "public" else "🔒"
+                output += f"  {emoji} {vis}: {count}\n"
+
+            output += "\nBy Category:\n"
+            for cat, count in sorted(stats['by_category'].items()):
+                output += f"  {cat}: {count}\n"
+
+            return {"content": [{"type": "text", "text": output}]}
+
+        except Exception as e:
+            logger.error(f"Failed to get memory stats: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to get stats: {str(e)}"}],
                 "is_error": True
             }
 
@@ -2107,9 +2222,12 @@ Parameters:
         schedule_update,
         schedule_delete,
         memory_save,
+        memory_save_with_supersede,
+        memory_update,
         memory_search,
         memory_list,
         memory_delete,
+        memory_stats,
         custom_command_list,
         custom_command_get,
         custom_command_create,
