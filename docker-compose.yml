@@ -5,28 +5,29 @@ services:
     build: .
     container_name: telegram-file-bot
     restart: unless-stopped
+    ports:
+      # Mini App web interface (nginx serves frontend, proxies to API)
+      - "8080:80"
     volumes:
-      # 用户数据持久化
+      # User data persistence
       - ./users:/app/users
-      # 配置文件
+      # Configuration file
       - ./config.json:/app/config.json:ro
-      # 系统提示词（方便修改）
+      # System prompt (easy to modify)
       - ./system_prompt.txt:/app/system_prompt.txt:ro
-      # 日志
+      # Logs
       - ./logs:/app/logs
-      # Claude 对话历史持久化（防止重建后失忆）
+      # Claude conversation history persistence
       - ./claude_data:/root/.claude
-      # Skills 目录（方便频繁更新）
+      # Skills directory (easy to update frequently)
       - ./.claude/skills:/app/.claude/skills:ro
     environment:
       - TZ=Asia/Shanghai
       # API keys are loaded from config.json, no need to set here
-      # - ANTHROPIC_API_KEY=your_key
-      # - ANTHROPIC_BASE_URL=https://api.anthropic.com
-    # 安全限制
+    # Security restrictions
     security_opt:
       - no-new-privileges:true
-    # 资源限制
+    # Resource limits
     deploy:
       resources:
         limits:
@@ -35,13 +36,13 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
-    # 健康检查
+    # Health check
     healthcheck:
-      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      test: ["CMD-SHELL", "curl -f http://localhost/health || python3 -c 'import sys; sys.exit(0)'"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     logging:
       driver: "json-file"
       options:

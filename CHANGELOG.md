@@ -4,6 +4,238 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Mini App Complete Implementation - All Phases Done
+
+### Overview
+Completed all 6 phases of the Telegram Mini App implementation. The bot now includes a full web dashboard accessible via the Mini App button in Telegram.
+
+### Phase 5 - Bot Integration
+- Added `mini_app_url` config option in config.json
+- Added Mini App button to /start command using InlineKeyboardButton + WebAppInfo
+- Button only appears when mini_app_url is configured (HTTPS required)
+
+### Phase 6 - Deployment
+- Created `nginx.conf` with:
+  - Static file serving for frontend
+  - API reverse proxy to port 8000
+  - WebSocket proxy support
+  - Gzip compression
+  - Static asset caching (1 year)
+  - Health check endpoint at /health
+
+- Updated `Dockerfile`:
+  - Added nginx installation
+  - Added frontend build step
+  - Copy built frontend to /var/www/html
+  - Copy nginx.conf
+
+- Updated `docker-compose.yml`:
+  - Added port mapping 8080:80
+  - Updated healthcheck to use curl
+
+- Updated `entrypoint.sh`:
+  - Start nginx if mini_app_api_enabled is true
+
+### Modified Files
+- `config.example.json` - Added mini_app_url option
+- `bot/handlers.py` - Added Mini App button to start command
+- `main.py` - Pass mini_app_url to setup_handlers
+- `Dockerfile` - Added nginx and frontend build
+- `docker-compose.yml` - Added port mapping
+- `entrypoint.sh` - Start nginx before bot
+- `nginx.conf` - New file for reverse proxy config
+
+### Configuration
+To enable Mini App:
+1. Set `mini_app_api_enabled: true` in config.json
+2. Set `mini_app_url` to your HTTPS domain (e.g., "https://yourdomain.com")
+3. Rebuild and restart: `docker compose up --build -d`
+4. The Mini App button will appear in /start command
+
+---
+
+## [2026-02-03] Mini App Frontend - Phase 2
+
+### Overview
+Implemented the React frontend for the Telegram Mini App dashboard. This phase includes the complete UI with file browsing, task monitoring, schedule viewing, and Sub Agent status.
+
+### Technology Stack
+- React 18 + TypeScript
+- Vite (build tool)
+- Tailwind CSS v4 (styling)
+- Zustand (state management)
+- @twa-dev/sdk (Telegram Mini App integration)
+- react-router-dom (routing)
+- lucide-react (icons)
+
+### New Features
+
+**Authentication Flow**:
+- Telegram initData authentication on app load
+- JWT token storage with Zustand persist
+- Auto-reconnect WebSocket on token restore
+- Development mode bypass for local testing
+
+**Files Page**:
+- Directory browsing with navigation
+- Storage quota progress bar
+- File/folder icons based on type
+- Download files directly
+- Delete files with confirmation
+- Create new directories
+
+**Tasks Page**:
+- Running tasks with cancel option
+- Recently completed tasks list
+- Task status indicators (running, completed, failed, cancelled)
+- Real-time updates via WebSocket
+
+**Schedules Page**:
+- Active and inactive schedule lists
+- Schedule type indicators (daily, weekly, interval)
+- Last run and next run times
+- Execution history/logs
+
+**Sub Agents Page**:
+- Agent pool status with progress bar
+- Running agents with elapsed time
+- Completed agents history
+- Retry count display
+
+**Real-time Updates**:
+- WebSocket client with auto-reconnect
+- Task status updates
+- Storage quota updates
+- Schedule execution notifications
+
+### New Files
+- `webapp/` - Complete React application directory
+  - `src/api/types.ts` - TypeScript type definitions
+  - `src/api/client.ts` - API client with JWT auth
+  - `src/api/websocket.ts` - WebSocket client
+  - `src/stores/auth.ts` - Auth state (Zustand)
+  - `src/stores/files.ts` - Files state
+  - `src/stores/tasks.ts` - Tasks state
+  - `src/stores/schedules.ts` - Schedules state
+  - `src/stores/subagents.ts` - Sub Agents state
+  - `src/hooks/useTelegram.ts` - Telegram SDK hook
+  - `src/hooks/useWebSocket.ts` - WebSocket subscriptions
+  - `src/components/layout/` - Layout, Header, TabBar
+  - `src/components/files/` - StorageBar, FileList, FileItem
+  - `src/components/tasks/` - TaskList, TaskCard
+  - `src/components/schedules/` - ScheduleList, ScheduleCard, ExecutionLog
+  - `src/pages/` - FilesPage, TasksPage, SchedulesPage, SubAgentsPage
+  - `src/App.tsx` - Root component with routing
+  - `src/index.css` - Tailwind CSS with theme variables
+  - `vite.config.ts` - Vite config with API proxy
+  - `index.html` - Entry point with Telegram script
+
+### Build Output
+- Production build: ~325KB JS (gzipped ~98KB)
+- CSS: ~12KB (gzipped ~3KB)
+
+---
+
+## [2026-02-03] Mini App API Backend - Phase 1
+
+### Overview
+Implemented the backend API server for the Telegram Mini App dashboard. This phase includes authentication, all REST API endpoints, and WebSocket support for real-time updates.
+
+### New Features
+
+**Authentication System**:
+- Telegram initData validation with HMAC-SHA256
+- JWT token generation and verification
+- 24-hour token expiration
+
+**REST API Endpoints**:
+- `POST /api/auth` - Exchange initData for JWT token
+- `GET /api/auth/me` - Get current user info
+- `GET /api/files` - List files with storage info
+- `GET /api/files/download/{path}` - Download file
+- `DELETE /api/files/{path}` - Delete file
+- `POST /api/files/mkdir` - Create directory
+- `GET /api/files/storage` - Get storage quota
+- `GET /api/tasks` - List all tasks
+- `GET /api/tasks/{id}` - Get task details
+- `POST /api/tasks/{id}/cancel` - Cancel task
+- `GET /api/schedules` - List scheduled tasks
+- `GET /api/schedules/logs` - Get operation logs
+- `GET /api/subagents/status` - Get Sub Agent pool status
+- `GET /api/subagents/running` - List running agents
+- `WS /api/ws` - WebSocket for real-time updates
+
+**WebSocket Events**:
+- `task_update` - Task status changes
+- `task_created` - New task created
+- `schedule_executed` - Schedule ran
+- `storage_update` - Storage quota changed
+
+**Integration**:
+- Shared manager instances with bot
+- Async startup with bot polling
+- Configurable via config.json
+
+### New Files
+- `api/__init__.py` - API package exports
+- `api/auth.py` - Telegram initData + JWT authentication
+- `api/websocket.py` - WebSocket connection manager
+- `api/dependencies.py` - FastAPI dependency injection
+- `api/server.py` - FastAPI app creation
+- `api/routes/__init__.py` - Routes package
+- `api/routes/auth.py` - Authentication endpoints
+- `api/routes/files.py` - File management endpoints
+- `api/routes/tasks.py` - Task endpoints
+- `api/routes/schedules.py` - Schedule endpoints
+- `api/routes/subagents.py` - Sub Agent endpoints
+
+### Modified Files
+- `main.py` - Added async startup with API server integration
+- `requirements.txt` - Added FastAPI, uvicorn, python-jose dependencies
+- `config.example.json` - Added Mini App API configuration options
+
+### Configuration
+New config options:
+- `mini_app_api_enabled` (default: true) - Enable/disable API server
+- `mini_app_api_port` (default: 8000) - API server port
+- `mini_app_api_dev_mode` (default: false) - Enable Swagger docs
+
+---
+
+## [2026-02-03] Telegram Mini App Technical Design Document
+
+### Overview
+Created comprehensive technical design document for implementing a Telegram Mini App (TWA) dashboard for each user.
+
+### Document Contents
+
+**Architecture Design**:
+- React 18 + TypeScript frontend with Tailwind CSS + shadcn/ui
+- FastAPI backend with JWT authentication
+- WebSocket real-time updates
+- Same Docker container deployment with Nginx reverse proxy
+
+**Features Planned**:
+- File management UI (browse, download, delete files)
+- Task execution status monitoring with real-time updates
+- Sub Agent pool status and history
+- Scheduled task management and execution logs
+
+**Security**:
+- Telegram initData HMAC-SHA256 validation
+- JWT token-based API authentication
+- User data isolation
+
+**Integration**:
+- Shared manager instances between bot and API
+- WebSocket broadcasting for task/schedule events
+- Mini App buttons in bot menu
+
+### New Files
+- `docs/MINI_APP_TECHNICAL_DESIGN.md` - Complete technical specification
+
+---
+
 ## [2026-02-03] MarkdownV2 Rich Text Support
 
 ### Overview

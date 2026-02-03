@@ -36,6 +36,11 @@ __pycache__/
 dist/
 build/
 
+# Node.js
+node_modules/
+webapp/node_modules/
+webapp/dist/
+
 # ============================================
 # 编辑器和 IDE
 # ============================================

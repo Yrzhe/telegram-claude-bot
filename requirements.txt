@@ -6,3 +6,10 @@ anthropic>=0.40.0
 akshare>=1.14.0
 openai>=1.0.0
 pydub>=0.25.0
+
+# Mini App API
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-jose[cryptography]>=3.3.0
+python-multipart>=0.0.6
+aiofiles>=23.2.0

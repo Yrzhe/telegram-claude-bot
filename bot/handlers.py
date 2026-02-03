@@ -7,7 +7,7 @@ import random
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
-from telegram import Update, ReactionTypeEmoji, BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+from telegram import Update, ReactionTypeEmoji, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.constants import ChatAction
 from telegram.ext import (
     ContextTypes,
@@ -283,7 +283,8 @@ def setup_handlers(
     allow_new_users: bool = True,
     api_config: dict | None = None,
     schedule_manager: ScheduleManager | None = None,
-    skill_manager: SkillManager | None = None
+    skill_manager: SkillManager | None = None,
+    mini_app_url: str = ""
 ):
     """
     Set up all command handlers
@@ -297,6 +298,7 @@ def setup_handlers(
         skill_manager: Skill manager for user skills
         allow_new_users: Whether to allow new users
         api_config: API config (api_key, base_url, model)
+        mini_app_url: URL for the Telegram Mini App (must be HTTPS)
     """
     user_agents: dict[int, TelegramAgentClient] = {}
     task_managers: dict[int, TaskManager] = {}
@@ -738,7 +740,19 @@ def setup_handlers(
 {t("EXAMPLE_CREATE_FILE")}
 {t("EXAMPLE_LIST_FILES")}
         """
-        await update.message.reply_text(help_text)
+
+        # Add Mini App button if configured
+        reply_markup = None
+        if mini_app_url:
+            keyboard = [
+                [InlineKeyboardButton(
+                    text="📱 Open Dashboard",
+                    web_app=WebAppInfo(url=mini_app_url)
+                )],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(help_text, reply_markup=reply_markup)
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)

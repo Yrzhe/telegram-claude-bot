@@ -1,15 +1,16 @@
 #!/bin/bash
 
-# 从 config.json 读取 API 配置
+# Read API config from config.json
 CONFIG_FILE="/app/config.json"
 
 if [ -f "$CONFIG_FILE" ]; then
-    # 使用 python 解析 JSON（比 jq 更可靠，因为容器已有 python）
+    # Use python to parse JSON (more reliable than jq since container has python)
     ANTHROPIC_API_KEY=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('anthropic_api_key', ''))")
     ANTHROPIC_BASE_URL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('anthropic_base_url', 'https://api.anthropic.com'))")
+    MINI_APP_ENABLED=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('mini_app_api_enabled', True))")
 fi
 
-# 创建 Claude 配置目录和文件
+# Create Claude config directory and file
 mkdir -p ~/.claude
 cat > ~/.claude/settings.json << EOF
 {
@@ -22,11 +23,18 @@ EOF
 
 echo "Claude API configured: base_url=${ANTHROPIC_BASE_URL}"
 
-# 复制 skills 到 Claude 配置目录（所有用户共享）
+# Copy skills to Claude config directory (shared by all users)
 if [ -d "/app/.claude/skills" ]; then
     cp -r /app/.claude/skills ~/.claude/
     echo "Skills loaded from /app/.claude/skills"
 fi
 
-# 启动 Bot
+# Start nginx if Mini App is enabled and nginx is installed
+if [ "$MINI_APP_ENABLED" = "True" ] && command -v nginx &> /dev/null; then
+    echo "Starting nginx for Mini App..."
+    nginx
+    echo "Nginx started on port 80"
+fi
+
+# Start Bot
 exec python3 main.py

@@ -1,42 +1,59 @@
 FROM python:3.11-slim
 
-# 设置工作目录
+# Set working directory
 WORKDIR /app
 
-# 安装系统依赖
+# Install system dependencies including nginx
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     ffmpeg \
+    nginx \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Node.js (Claude Agent SDK 需要)
+# Install Node.js (for Claude Agent SDK and frontend build)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Claude CLI (Claude Agent SDK 依赖)
+# Install Claude CLI (Claude Agent SDK dependency)
 RUN npm install -g @anthropic-ai/claude-code
 
-# 复制依赖文件
+# Copy Python dependencies
 COPY requirements.txt .
 
-# 安装 Python 依赖
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制应用代码
+# Build frontend (if webapp directory exists)
+COPY webapp/package*.json webapp/
+RUN cd webapp && npm install
+
+COPY webapp/ webapp/
+RUN cd webapp && npm run build
+
+# Copy frontend build to nginx
+RUN mkdir -p /var/www/html && cp -r webapp/dist/* /var/www/html/
+
+# Copy nginx config
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Copy application code
 COPY . .
 
-# 创建用户数据目录
+# Create user data directory
 RUN mkdir -p /app/users
 
-# 设置环境变量
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# 复制入口脚本
+# Copy entry script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# 启动命令
+# Expose port 80 for nginx
+EXPOSE 80
+
+# Start command
 CMD ["/entrypoint.sh"]

@@ -8,5 +8,12 @@
     "anthropic_api_key": "YOUR_ANTHROPIC_API_KEY",
     "anthropic_base_url": "https://api.anthropic.com",
     "claude_model": "claude-sonnet-4-5-20250929",
-    "mistral_api_key": "YOUR_MISTRAL_API_KEY"
+    "mistral_api_key": "YOUR_MISTRAL_API_KEY",
+    "openai_api_key": "YOUR_OPENAI_API_KEY",
+
+    "_comment_mini_app": "Mini App API Configuration",
+    "mini_app_api_enabled": true,
+    "mini_app_api_port": 8000,
+    "mini_app_api_dev_mode": false,
+    "mini_app_url": ""
 }

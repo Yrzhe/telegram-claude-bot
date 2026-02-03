@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Telegram 文件管理 Bot 入口"""
 
+import asyncio
 import json
 import logging
 from pathlib import Path
 from datetime import time
+from typing import Dict, Optional
 from telegram.ext import Application
 
 from bot import setup_handlers, UserManager, SessionManager
 from bot.schedule import ScheduleManager
 from bot.skill import SkillManager
+from bot.agent.task_manager import TaskManager
 
 
 def load_config(config_path: str = "config.json") -> dict:
@@ -22,8 +25,94 @@ def load_config(config_path: str = "config.json") -> dict:
         return json.load(f)
 
 
-def main():
-    """主函数"""
+# Global task managers cache
+_task_managers: Dict[int, TaskManager] = {}
+
+
+def get_or_create_task_manager(
+    user_id: int,
+    user_manager: UserManager,
+    on_task_complete=None,
+    send_file_callback=None,
+    send_message_callback=None
+) -> TaskManager:
+    """Get or create TaskManager for a user."""
+    if user_id not in _task_managers:
+        user_dir = str(user_manager.get_user_data_path(user_id).parent)
+        _task_managers[user_id] = TaskManager(
+            user_id=user_id,
+            working_directory=user_dir,
+            on_task_complete=on_task_complete,
+            send_file_callback=send_file_callback,
+            send_message_callback=send_message_callback
+        )
+    return _task_managers[user_id]
+
+
+async def run_api_server(
+    user_manager: UserManager,
+    session_manager: SessionManager,
+    schedule_manager: ScheduleManager,
+    bot_token: str,
+    allow_new_users: bool,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    dev_mode: bool = False
+):
+    """Run the Mini App API server."""
+    try:
+        from api.server import create_api_app
+        from api.websocket import ws_manager
+        import uvicorn
+
+        logger = logging.getLogger(__name__)
+
+        # Create task manager factory that integrates with WebSocket
+        def get_task_manager(user_id: int) -> TaskManager:
+            async def notify_complete(task_id, description, result):
+                await ws_manager.broadcast_task_update(user_id, task_id, "completed", result)
+
+            return get_or_create_task_manager(
+                user_id=user_id,
+                user_manager=user_manager,
+                on_task_complete=notify_complete
+            )
+
+        # Create API app
+        api_app = create_api_app(
+            user_manager=user_manager,
+            session_manager=session_manager,
+            schedule_manager=schedule_manager,
+            get_task_manager=get_task_manager,
+            bot_token=bot_token,
+            allow_new_users=allow_new_users,
+            dev_mode=dev_mode
+        )
+
+        # Configure uvicorn
+        config = uvicorn.Config(
+            api_app,
+            host=host,
+            port=port,
+            log_level="info",
+            access_log=False
+        )
+        server = uvicorn.Server(config)
+
+        logger.info(f"Starting Mini App API server on {host}:{port}")
+        await server.serve()
+
+    except ImportError as e:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"API server dependencies not available: {e}")
+        logger.warning("Mini App API will not be available. Install with: pip install fastapi uvicorn python-jose")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to start API server: {e}")
+
+
+async def main_async():
+    """异步主函数"""
     # 设置日志
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -94,7 +183,8 @@ def main():
         allow_new_users=allow_new_users,
         api_config=api_config,
         schedule_manager=schedule_manager,
-        skill_manager=skill_manager
+        skill_manager=skill_manager,
+        mini_app_url=config.get("mini_app_url", "")
     )
 
     # 设置定时任务管理器
@@ -372,8 +462,52 @@ Task instructions:
     logger.info(f"允许新用户: {allow_new_users}")
     logger.info(f"管理员: {admin_users}")
 
-    # 运行 Bot
-    app.run_polling(allowed_updates=["message", "callback_query"])
+    # Mini App API 配置
+    api_enabled = config.get("mini_app_api_enabled", True)
+    api_port = config.get("mini_app_api_port", 8000)
+    api_dev_mode = config.get("mini_app_api_dev_mode", False)
+
+    # 启动 Bot 和 API 服务器
+    async with app:
+        await app.start()
+        await app.updater.start_polling(allowed_updates=["message", "callback_query"])
+
+        # Start API server if enabled
+        api_task = None
+        if api_enabled:
+            api_task = asyncio.create_task(
+                run_api_server(
+                    user_manager=user_manager,
+                    session_manager=session_manager,
+                    schedule_manager=schedule_manager,
+                    bot_token=bot_token,
+                    allow_new_users=allow_new_users,
+                    host="0.0.0.0",
+                    port=api_port,
+                    dev_mode=api_dev_mode
+                )
+            )
+            logger.info(f"Mini App API server starting on port {api_port}")
+
+        # Keep running until interrupted
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            logger.info("Shutting down...")
+        finally:
+            if api_task:
+                api_task.cancel()
+                try:
+                    await api_task
+                except asyncio.CancelledError:
+                    pass
+            await app.updater.stop()
+            await app.stop()
+
+
+def main():
+    """同步入口点"""
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
