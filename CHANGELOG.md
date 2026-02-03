@@ -4,6 +4,29 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Memory System: On-Demand Recall
+
+### Overview
+Changed memory retrieval from auto-inject to on-demand recall. Instead of loading all memories into the system prompt (which wastes tokens), the Agent now searches memories only when handling personalized requests.
+
+### Changes
+
+**On-Demand Recall**:
+- Agent searches `memory_search()` before answering personalized requests
+- Different request types trigger different category searches:
+  - Writing tasks → search `preferences`
+  - Work advice → search `career`
+  - Goal discussions → search `goals`
+- Saves tokens by not loading memories for simple/generic requests
+
+### Modified Files
+- `prompts/memory.md` - Added "Recall Before Responding" section with search guidelines
+- `prompts/context.md` - Removed `{user_memories}` placeholder
+- `bot/prompt_builder.py` - Removed auto memory injection
+- `bot/agent/client.py` - Removed user_data_dir parameter
+
+---
+
 ## [2026-02-03] Enhanced Memory System with Proactive Learning and User Feedback
 
 ### Overview
