@@ -4,6 +4,67 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Mini App Complete UI Redesign v2 + Multi-Select Feature
+
+### Overview
+Complete redesign of the Mini App with iOS Settings app inspired design system. This is the second iteration addressing user feedback about proper edge margins and cleaner layouts.
+
+### Design System (v2 - Complete Rewrite)
+- **CSS Class-Based Architecture**: New semantic classes (`.page`, `.card`, `.list-item`) replacing inline Tailwind
+- **Consistent 16px Edge Margins**: All pages have proper spacing from phone edges
+- **Large 34px Bold Titles**: iOS-style large titles with subtle subtitles
+- **Grouped Card Containers**: 12px rounded corners, white background, proper shadows
+- **List Items with Dividers**: 56px height, left-aligned dividers, icon + content + accessory pattern
+- **Safe Area Handling**: Proper padding for notched devices and TabBar clearance
+
+### UI Components Rewritten
+- **All Pages**: FilesPage, TasksPage, SchedulesPage, SubAgentsPage - unified layout structure
+- **All Lists**: FileList, FileItem, TaskList, ScheduleList - consistent card + list-item pattern
+- **TabBar**: Simplified with fixed height and safe area padding
+- **Layout**: Minimal wrapper, consistent background color
+- **Removed**: StorageBar component (storage now shown in header subtitle + inline progress bar)
+
+### New Features (from v1)
+- **Edit Mode**: "Edit" button in header to toggle multi-select mode
+- **Multi-Select**: Circular checkboxes appear next to files in edit mode
+- **Floating Action Bar**: Appears when files selected with "Download" and "Delete" buttons
+- **Batch Download**: Single file sent directly, multiple files/folders zipped via Telegram Bot
+- **Batch Delete**: Delete multiple files/folders at once
+- **Toast Notifications**: Feedback at top of screen
+
+### Technical Changes
+- Complete CSS rewrite with design system variables
+- Safe area inset support (`env(safe-area-inset-bottom)`)
+- Page padding that clears TabBar (`padding-bottom: calc(tabbar + safe-area + 16px)`)
+- Batch API endpoints with Telegram file sending
+
+### Files Modified
+- `webapp/src/index.css`: Complete design system rewrite
+- `webapp/src/components/layout/Layout.tsx`: Simplified
+- `webapp/src/components/layout/TabBar.tsx`: CSS class-based
+- `webapp/src/pages/FilesPage.tsx`: New layout structure
+- `webapp/src/pages/TasksPage.tsx`: New layout structure
+- `webapp/src/pages/SchedulesPage.tsx`: New layout structure
+- `webapp/src/pages/SubAgentsPage.tsx`: New layout structure
+- `webapp/src/components/files/FileList.tsx`: Card + list-item pattern
+- `webapp/src/components/files/FileItem.tsx`: List-item classes
+- `webapp/src/components/tasks/TaskList.tsx`: Card + list-item pattern
+- `webapp/src/components/schedules/ScheduleList.tsx`: Card + list-item pattern
+- `webapp/src/stores/files.ts`: Selection state, batch actions
+- `webapp/src/api/client.ts`: batchDelete, batchDownload methods
+- `api/routes/files.py`: /batch/delete and /batch/download endpoints
+- `api/dependencies.py`: bot_token storage
+- `api/server.py`: Pass bot_token to Dependencies
+
+### Files Removed
+- `webapp/src/components/files/StorageBar.tsx`: Replaced by inline progress bar in FilesPage
+
+### New Files
+- `webapp/src/components/files/FloatingActionBar.tsx`: Multi-select action bar
+- `webapp/src/components/common/Toast.tsx`: Toast notification component
+
+---
+
 ## [2026-02-03] Mini App UI Redesign + SubAgents API Fix
 
 ### UI Improvements

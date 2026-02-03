@@ -71,6 +71,7 @@ def create_api_app(
         session_manager=session_manager,
         schedule_manager=schedule_manager,
         get_task_manager=get_task_manager,
+        bot_token=bot_token,
         allow_new_users=allow_new_users,
         dev_mode=dev_mode
     )

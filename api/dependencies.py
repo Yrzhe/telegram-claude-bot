@@ -27,6 +27,7 @@ class Dependencies:
         session_manager,
         schedule_manager,
         get_task_manager: Callable,
+        bot_token: str = "",
         allow_new_users: bool = True,
         dev_mode: bool = False
     ):
@@ -39,6 +40,7 @@ class Dependencies:
             session_manager: SessionManager instance
             schedule_manager: ScheduleManager instance
             get_task_manager: Function to get TaskManager for a user
+            bot_token: Telegram bot token for sending files
             allow_new_users: Whether new user registration is allowed
             dev_mode: Enable development mode (relaxed auth)
         """
@@ -47,6 +49,7 @@ class Dependencies:
         self.session_manager = session_manager
         self.schedule_manager = schedule_manager
         self.get_task_manager = get_task_manager
+        self.bot_token = bot_token
         self.allow_new_users = allow_new_users
         self.dev_mode = dev_mode
 
@@ -196,3 +199,8 @@ def get_task_manager_for_user(user_id: int = Depends(get_current_user_id)):
 def get_working_directory(user_id: int = Depends(get_current_user_id)) -> str:
     """Dependency to get working directory for current user."""
     return get_deps().get_user_working_directory(user_id)
+
+
+def get_bot_token() -> str:
+    """Dependency to get bot token for sending files."""
+    return get_deps().bot_token

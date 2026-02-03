@@ -83,6 +83,20 @@ class ApiClient {
     return `${API_BASE}/files/download/${encodeURIComponent(path)}?token=${this.token}`
   }
 
+  async batchDelete(paths: string[]): Promise<{ success: boolean }> {
+    return this.request('/files/batch/delete', {
+      method: 'POST',
+      body: JSON.stringify({ paths }),
+    })
+  }
+
+  async batchDownload(paths: string[]): Promise<{ success: boolean }> {
+    return this.request('/files/batch/download', {
+      method: 'POST',
+      body: JSON.stringify({ paths }),
+    })
+  }
+
   // Tasks
   async listTasks(): Promise<TaskListResponse> {
     return this.request<TaskListResponse>('/tasks')

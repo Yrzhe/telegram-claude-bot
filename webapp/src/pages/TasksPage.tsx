@@ -1,34 +1,36 @@
-import { ListTodo } from 'lucide-react'
-import { TaskList } from '../components/tasks/TaskList'
 import { useTasksStore } from '../stores/tasks'
+import { TaskList } from '../components/tasks/TaskList'
 
 export function TasksPage() {
   const { stats } = useTasksStore()
 
   return (
-    <div className="flex flex-col h-full bg-[var(--tg-theme-secondary-bg-color)]">
+    <div className="page scrollbar-hide overflow-auto">
       {/* Header */}
-      <header className="bg-[var(--tg-theme-bg-color)] px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-            <ListTodo className="w-5 h-5 text-white" />
+      <header className="page-header">
+        <h1 className="page-title">Tasks</h1>
+        <p className="page-subtitle">Background operations</p>
+      </header>
+
+      {/* Stats */}
+      <div className="card mb-4">
+        <div className="stats-row">
+          <div className="stat-item">
+            <div className="stat-value" style={{ color: '#007aff' }}>{stats.running}</div>
+            <div className="stat-label">Running</div>
           </div>
-          <div className="flex-1">
-            <h1 className="text-lg font-semibold text-[var(--tg-theme-text-color)]">
-              Tasks
-            </h1>
-            <p className="text-xs text-[var(--tg-theme-hint-color)]">
-              Background operations
-            </p>
+          <div className="stat-item">
+            <div className="stat-value" style={{ color: '#34c759' }}>{stats.completed}</div>
+            <div className="stat-label">Completed</div>
           </div>
-          {stats.running > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/10">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-xs font-medium text-green-500">{stats.running}</span>
+          {stats.failed > 0 && (
+            <div className="stat-item">
+              <div className="stat-value" style={{ color: '#ff3b30' }}>{stats.failed}</div>
+              <div className="stat-label">Failed</div>
             </div>
           )}
         </div>
-      </header>
+      </div>
 
       {/* Task list */}
       <TaskList />
