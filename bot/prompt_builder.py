@@ -121,8 +121,7 @@ def build_system_prompt(
     context_summary: Optional[str] = None,
     custom_skills_content: Optional[str] = None,
     additional_sections: Optional[dict[str, str]] = None,
-    topic_context: Optional[str] = None,
-    user_data_dir: Optional[str] = None
+    topic_context: Optional[str] = None
 ) -> str:
     """
     Build the complete system prompt from modular components.
@@ -136,7 +135,6 @@ def build_system_prompt(
         custom_skills_content: User's custom skills content
         additional_sections: Additional sections to add (key=section_name, value=content)
         topic_context: Topic context string from TopicManager
-        user_data_dir: User's data directory for loading memories
 
     Returns:
         Complete system prompt string
@@ -170,37 +168,6 @@ Previous Conversation Summary (IMPORTANT - Read this to understand context):
 This summary contains key information from our previous conversation that was compacted to save context space.
 Use this information to maintain continuity with the user."""
 
-        # Build user memories string
-        memories_str = ""
-        if user_data_dir:
-            try:
-                from .memory import MemoryManager
-                from pathlib import Path
-                manager = MemoryManager(Path(user_data_dir))
-                memories = manager.search_memories(active_only=True, limit=20)
-                if memories:
-                    memories_str = "Use this information to personalize your responses:\n\n"
-                    # Group by category
-                    by_category = {}
-                    for m in memories:
-                        cat = m.category
-                        if cat not in by_category:
-                            by_category[cat] = []
-                        by_category[cat].append(m)
-
-                    for cat, mems in by_category.items():
-                        memories_str += f"**{cat.title()}**:\n"
-                        for m in mems[:5]:  # Max 5 per category
-                            memories_str += f"- {m.content}\n"
-                        memories_str += "\n"
-                else:
-                    memories_str = "(No memories saved yet - learn about this user through conversation)"
-            except Exception as e:
-                logger.debug(f"Failed to load user memories: {e}")
-                memories_str = "(Memory system unavailable)"
-        else:
-            memories_str = "(Memory system not configured)"
-
         # Get current date info
         now = datetime.now()
         current_date = now.strftime('%Y-%m-%d')
@@ -213,7 +180,6 @@ Use this information to maintain continuity with the user."""
         context = context.replace("{user_display_name}", user_display_name or "Unknown")
         context = context.replace("{working_directory}", working_directory)
         context = context.replace("{storage_info}", storage_str)
-        context = context.replace("{user_memories}", memories_str)
         context = context.replace("{context_summary}", context_str)
 
         sections.append(context)

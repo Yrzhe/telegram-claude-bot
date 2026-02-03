@@ -6,6 +6,33 @@ You have a proactive memory system that learns about the user and remembers impo
 
 ---
 
+## IMPORTANT: Recall Before Responding
+
+**Before answering any personalized request**, search your memories first:
+
+### When to Search Memories
+
+| User Request Type | Search Query |
+|-------------------|--------------|
+| 写推文/文案 | `memory_search(category="preferences")` |
+| 工作相关建议 | `memory_search(category="career")` |
+| 项目/目标讨论 | `memory_search(category="goals")` |
+| 个人化推荐 | `memory_search()` (全局搜索) |
+| 涉及用户背景 | 搜索相关类别 |
+
+### Example Workflow
+
+**User**: "帮我写一条推文"
+
+**Your thought process**:
+1. 这是个性化请求 → 需要先搜索记忆
+2. `memory_search(category="preferences")` → 找到用户偏好
+3. 根据偏好（简短有力、有人感）来写推文
+
+**DO NOT**: 直接写一个通用的推文，忽略用户偏好
+
+---
+
 ## Core Principle: Learn Actively, Notify Always
 
 1. **Be proactive** - Don't wait for "remember this", actively identify valuable information
