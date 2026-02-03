@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react'
-import { ChevronLeft, FolderPlus, RefreshCw } from 'lucide-react'
+import { ChevronLeft, FolderPlus, RefreshCw, FolderOpen, Loader2 } from 'lucide-react'
 import { useFilesStore } from '../../stores/files'
 import { useTelegram } from '../../hooks/useTelegram'
 import { FileItem } from './FileItem'
@@ -18,7 +18,7 @@ export function FileList() {
 
   useEffect(() => {
     loadFiles()
-  }, [currentPath])
+  }, [currentPath, loadFiles])
 
   const handleNavigate = useCallback((path: string) => {
     hapticFeedback?.('light')
@@ -62,62 +62,74 @@ export function FileList() {
   })
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 overflow-hidden">
       {/* Path navigation */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-[var(--tg-theme-secondary-bg-color)] border-b border-[var(--tg-theme-hint-color)]/10">
+      <div className="flex items-center gap-2 px-4 py-3 bg-[var(--tg-theme-bg-color)] mx-4 mt-3 rounded-xl shadow-sm">
         {currentPath !== '/' && (
           <button
             onClick={handleBack}
-            className="p-1 text-[var(--tg-theme-button-color)]"
+            className="w-8 h-8 rounded-lg bg-[var(--tg-theme-secondary-bg-color)] flex items-center justify-center active:scale-95 transition-transform"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5 text-[var(--tg-theme-button-color)]" />
           </button>
         )}
-        <span className="flex-1 text-sm text-[var(--tg-theme-text-color)] truncate font-mono">
-          {currentPath}
-        </span>
+        <div className="flex-1 min-w-0">
+          <span className="text-sm text-[var(--tg-theme-text-color)] truncate block font-mono">
+            {currentPath}
+          </span>
+        </div>
         <button
           onClick={handleCreateDir}
-          className="p-1 text-[var(--tg-theme-button-color)]"
+          className="w-8 h-8 rounded-lg bg-[var(--tg-theme-secondary-bg-color)] flex items-center justify-center active:scale-95 transition-transform"
         >
-          <FolderPlus className="w-5 h-5" />
+          <FolderPlus className="w-4 h-4 text-[var(--tg-theme-button-color)]" />
         </button>
         <button
           onClick={handleRefresh}
-          className="p-1 text-[var(--tg-theme-button-color)]"
           disabled={isLoading}
+          className="w-8 h-8 rounded-lg bg-[var(--tg-theme-secondary-bg-color)] flex items-center justify-center active:scale-95 transition-transform"
         >
-          <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 text-[var(--tg-theme-button-color)] ${isLoading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       {/* Error message */}
       {error && (
-        <div className="px-4 py-2 bg-red-500/10 text-red-500 text-sm">
+        <div className="mx-4 mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-500">
           {error}
         </div>
       )}
 
       {/* File list */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto px-4 py-3 pb-20">
         {isLoading && items.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-[var(--tg-theme-hint-color)]">
-            Loading...
+          <div className="flex flex-col items-center justify-center h-40">
+            <Loader2 className="w-8 h-8 text-[var(--tg-theme-button-color)] animate-spin mb-3" />
+            <span className="text-sm text-[var(--tg-theme-hint-color)]">Loading files...</span>
           </div>
         ) : sortedItems.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-[var(--tg-theme-hint-color)]">
-            Empty directory
+          <div className="flex flex-col items-center justify-center h-40 bg-[var(--tg-theme-bg-color)] rounded-xl">
+            <div className="w-16 h-16 rounded-full bg-[var(--tg-theme-secondary-bg-color)] flex items-center justify-center mb-3">
+              <FolderOpen className="w-8 h-8 text-[var(--tg-theme-hint-color)]" />
+            </div>
+            <p className="text-sm font-medium text-[var(--tg-theme-text-color)]">Empty folder</p>
+            <p className="text-xs text-[var(--tg-theme-hint-color)] mt-1">
+              Upload files or create a folder
+            </p>
           </div>
         ) : (
-          sortedItems.map((item) => (
-            <FileItem
-              key={item.name}
-              item={item}
-              currentPath={currentPath}
-              onNavigate={handleNavigate}
-              onDelete={handleDelete}
-            />
-          ))
+          <div className="bg-[var(--tg-theme-bg-color)] rounded-xl overflow-hidden shadow-sm">
+            {sortedItems.map((item, index) => (
+              <FileItem
+                key={item.name}
+                item={item}
+                currentPath={currentPath}
+                onNavigate={handleNavigate}
+                onDelete={handleDelete}
+                isLast={index === sortedItems.length - 1}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { Folder, File, FileText, Image, FileCode, FileArchive, Trash2, Download } from 'lucide-react'
+import { Folder, File, FileText, Image, FileCode, FileArchive, Trash2, Download, ChevronRight } from 'lucide-react'
 import type { FileItem as FileItemType } from '../../api/types'
 import { api } from '../../api/client'
 
@@ -7,9 +7,10 @@ interface FileItemProps {
   currentPath: string
   onNavigate: (path: string) => void
   onDelete: (path: string) => void
+  isLast?: boolean
 }
 
-export function FileItem({ item, currentPath, onNavigate, onDelete }: FileItemProps) {
+export function FileItem({ item, currentPath, onNavigate, onDelete, isLast = false }: FileItemProps) {
   const fullPath = currentPath === '/' ? `/${item.name}` : `${currentPath}/${item.name}`
 
   const formatDate = (dateStr: string) => {
@@ -39,44 +40,56 @@ export function FileItem({ item, currentPath, onNavigate, onDelete }: FileItemPr
 
   const getIcon = () => {
     if (item.type === 'directory') {
-      return <Folder className="w-5 h-5 text-[var(--tg-theme-button-color)]" />
+      return (
+        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+          <Folder className="w-5 h-5 text-blue-500" />
+        </div>
+      )
     }
 
     const ext = item.name.split('.').pop()?.toLowerCase() || ''
-    const iconClass = "w-5 h-5 text-[var(--tg-theme-hint-color)]"
 
-    switch (ext) {
-      case 'txt':
-      case 'md':
-      case 'doc':
-      case 'docx':
-      case 'pdf':
-        return <FileText className={iconClass} />
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-      case 'webp':
-      case 'svg':
-        return <Image className={iconClass} />
-      case 'js':
-      case 'ts':
-      case 'jsx':
-      case 'tsx':
-      case 'py':
-      case 'json':
-      case 'html':
-      case 'css':
-        return <FileCode className={iconClass} />
-      case 'zip':
-      case 'rar':
-      case '7z':
-      case 'tar':
-      case 'gz':
-        return <FileArchive className={iconClass} />
-      default:
-        return <File className={iconClass} />
+    const getIconByExt = () => {
+      switch (ext) {
+        case 'txt':
+        case 'md':
+        case 'doc':
+        case 'docx':
+        case 'pdf':
+          return { icon: FileText, color: 'text-orange-500', bg: 'bg-orange-500/10' }
+        case 'jpg':
+        case 'jpeg':
+        case 'png':
+        case 'gif':
+        case 'webp':
+        case 'svg':
+          return { icon: Image, color: 'text-green-500', bg: 'bg-green-500/10' }
+        case 'js':
+        case 'ts':
+        case 'jsx':
+        case 'tsx':
+        case 'py':
+        case 'json':
+        case 'html':
+        case 'css':
+          return { icon: FileCode, color: 'text-purple-500', bg: 'bg-purple-500/10' }
+        case 'zip':
+        case 'rar':
+        case '7z':
+        case 'tar':
+        case 'gz':
+          return { icon: FileArchive, color: 'text-yellow-500', bg: 'bg-yellow-500/10' }
+        default:
+          return { icon: File, color: 'text-gray-500', bg: 'bg-gray-500/10' }
+      }
     }
+
+    const { icon: Icon, color, bg } = getIconByExt()
+    return (
+      <div className={`w-10 h-10 rounded-lg ${bg} flex items-center justify-center`}>
+        <Icon className={`w-5 h-5 ${color}`} />
+      </div>
+    )
   }
 
   const handleClick = () => {
@@ -98,35 +111,47 @@ export function FileItem({ item, currentPath, onNavigate, onDelete }: FileItemPr
   return (
     <div
       onClick={handleClick}
-      className={`flex items-center px-4 py-3 border-b border-[var(--tg-theme-hint-color)]/10 ${
+      className={`flex items-center px-3 py-3 ${
+        !isLast ? 'border-b border-[var(--tg-theme-hint-color)]/10' : ''
+      } ${
         item.type === 'directory' ? 'cursor-pointer active:bg-[var(--tg-theme-hint-color)]/5' : ''
-      }`}
+      } transition-colors`}
     >
       <div className="flex-shrink-0 mr-3">{getIcon()}</div>
 
       <div className="flex-1 min-w-0">
-        <div className="text-[var(--tg-theme-text-color)] truncate">{item.name}</div>
-        <div className="text-xs text-[var(--tg-theme-hint-color)] flex items-center gap-2">
-          {item.type === 'file' && item.size && <span>{formatSize(item.size)}</span>}
+        <div className="text-sm font-medium text-[var(--tg-theme-text-color)] truncate">
+          {item.name}
+        </div>
+        <div className="text-xs text-[var(--tg-theme-hint-color)] flex items-center gap-2 mt-0.5">
+          {item.type === 'file' && item.size !== undefined && (
+            <>
+              <span>{formatSize(item.size)}</span>
+              <span>·</span>
+            </>
+          )}
           <span>{formatDate(item.modified)}</span>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 ml-2">
+      <div className="flex items-center gap-1 ml-2">
         {item.type === 'file' && (
           <button
             onClick={handleDownload}
-            className="p-2 text-[var(--tg-theme-hint-color)] hover:text-[var(--tg-theme-button-color)] transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--tg-theme-hint-color)] active:bg-[var(--tg-theme-hint-color)]/10 transition-colors"
           >
             <Download className="w-4 h-4" />
           </button>
         )}
         <button
           onClick={handleDelete}
-          className="p-2 text-[var(--tg-theme-hint-color)] hover:text-red-500 transition-colors"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--tg-theme-hint-color)] active:bg-red-500/10 active:text-red-500 transition-colors"
         >
           <Trash2 className="w-4 h-4" />
         </button>
+        {item.type === 'directory' && (
+          <ChevronRight className="w-4 h-4 text-[var(--tg-theme-hint-color)]" />
+        )}
       </div>
     </div>
   )

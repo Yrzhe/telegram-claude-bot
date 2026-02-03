@@ -102,11 +102,9 @@ export interface SubAgentStatusResponse {
 export interface SubAgentHistoryItem {
   task_id: string
   description: string
-  status: 'completed' | 'failed'
-  started_at: string
-  completed_at: string
-  duration_seconds: number
-  attempts: number
+  status: 'completed' | 'failed' | 'cancelled'
+  created_at: string
+  duration_seconds?: number
   result_preview?: string
 }
 

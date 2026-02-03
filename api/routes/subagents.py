@@ -50,7 +50,7 @@ class CompletedAgent(BaseModel):
 
 class SubAgentHistoryResponse(BaseModel):
     """Sub Agent history response."""
-    completed: List[CompletedAgent]
+    tasks: List[CompletedAgent]
     total_count: int
 
 
@@ -163,7 +163,7 @@ async def get_subagent_history(
     completed.sort(key=lambda t: t.created_at, reverse=True)
 
     return SubAgentHistoryResponse(
-        completed=completed[:limit],
+        tasks=completed[:limit],
         total_count=len(completed)
     )
 

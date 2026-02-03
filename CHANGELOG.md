@@ -4,6 +4,31 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-03] Mini App UI Redesign + SubAgents API Fix
+
+### UI Improvements
+- Redesigned all pages with modern card-based layout and gradient icons
+- Added polished headers with icon badges and status indicators
+- Improved TabBar with gradient backgrounds for active tabs
+- Better empty states with helpful descriptions
+- Card-based file items with colored icons per file type
+- Consistent styling across Files, Tasks, Schedules, and Agents pages
+- Smooth transitions and active states for touch feedback
+
+### Bug Fixes
+- Fixed SubAgents API response format mismatch (`completed` -> `tasks`)
+- Updated frontend types to match backend response structure
+- Fixed useEffect dependency arrays to prevent unnecessary re-renders
+
+### Modified Files
+- `api/routes/subagents.py`: Fixed history response field name
+- `webapp/src/api/types.ts`: Updated SubAgentHistoryItem interface
+- `webapp/src/pages/*.tsx`: Redesigned all page layouts
+- `webapp/src/components/**/*.tsx`: Updated all components with new design
+- Removed unused component files (Header, TaskCard, ScheduleCard, ExecutionLog)
+
+---
+
 ## [2026-02-03] Add Persistent Mini App Menu Button
 
 ### Changes
