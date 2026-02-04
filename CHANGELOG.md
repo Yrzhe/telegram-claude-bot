@@ -4,6 +4,28 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Fix Chat History Search to Include Recent Logs
+
+### Problem
+- `chat_history_search` tool only searched archived summaries in `chat_summaries/`
+- Recent conversations in `chat_logs/` were not searchable
+- Users couldn't find conversations from the past few days (since last `/new` command)
+
+### Root Cause
+- Archiving only happens when user runs `/new` or session expires
+- If user stays active, conversations remain in `chat_logs/` indefinitely
+- Search tool was not looking at `chat_logs/` directory
+
+### Changes Made
+
+**Modified `bot/agent/tools.py` - `chat_history_search` function**
+- Now searches both `chat_logs/` (recent) and `chat_summaries/` (archived)
+- Results sorted by modification time (newest first)
+- Each result labeled as `[Recent]` or `[Archived]`
+- Combined results up to the specified limit
+
+---
+
 ## [2026-02-04] Fix Data Directory Paths and Remove Tasks Page
 
 ### Problems Fixed

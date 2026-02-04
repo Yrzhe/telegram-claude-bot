@@ -2240,7 +2240,7 @@ Parameters:
 
     @tool(
         "chat_history_search",
-        """Search through past conversation summaries to recall what was discussed in previous sessions.
+        """Search through past conversations (both recent logs and archived summaries).
 
 Use this when:
 - User asks "remember what we talked about?" or "我们之前讨论的..."
@@ -2249,13 +2249,13 @@ Use this when:
 
 Parameters:
 - query: Keywords to search for (e.g., "X agent", "Twitter", "project")
-- limit: Maximum number of summaries to return (default: 5)
+- limit: Maximum number of results to return (default: 5)
 
-Returns summaries of past conversations that match the query.""",
+Returns matching conversations from both recent chat logs and archived summaries.""",
         {"query": str, "limit": int}
     )
     async def chat_history_search(args: dict[str, Any]) -> dict[str, Any]:
-        """Search past conversation summaries"""
+        """Search past conversations - both recent logs and archived summaries"""
         query = args.get("query", "").strip()
         limit = args.get("limit", 5)
 
@@ -2266,62 +2266,99 @@ Returns summaries of past conversations that match the query.""",
             }
 
         try:
-            # Get user's chat_summaries directory
-            summaries_dir = Path(_working_directory).parent / "chat_summaries"
+            user_dir = Path(_working_directory).parent
+            summaries_dir = user_dir / "chat_summaries"
+            logs_dir = user_dir / "chat_logs"
 
-            if not summaries_dir.exists():
-                return {
-                    "content": [{"type": "text", "text": "No chat history found. This is a new user or conversations haven't been archived yet."}]
-                }
-
-            # Find all summary files
-            summary_files = sorted(
-                summaries_dir.glob("summary_*.txt"),
-                key=lambda f: f.stat().st_mtime,
-                reverse=True
-            )
-
-            if not summary_files:
-                return {
-                    "content": [{"type": "text", "text": "No conversation summaries found. Use /new to archive current conversation."}]
-                }
-
-            # Search through summaries
             results = []
             query_lower = query.lower() if query else ""
 
-            for summary_file in summary_files:
-                content = summary_file.read_text(encoding='utf-8')
+            # 1. Search recent chat logs (unarchived conversations)
+            if logs_dir.exists():
+                log_files = sorted(
+                    logs_dir.glob("chat_*.txt"),
+                    key=lambda f: f.stat().st_mtime,
+                    reverse=True
+                )
 
-                # If no query, just return recent summaries
-                if not query_lower or query_lower in content.lower():
-                    # Extract date from filename (summary_YYYYMMDD_HHMMSS.txt)
-                    filename = summary_file.name
-                    try:
-                        date_part = filename.replace("summary_", "").replace(".txt", "")
-                        date_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]} {date_part[9:11]}:{date_part[11:13]}"
-                    except:
-                        date_str = "Unknown date"
+                for log_file in log_files:
+                    content = log_file.read_text(encoding='utf-8')
 
-                    # Get summary preview (skip header lines starting with #)
-                    lines = content.split('\n')
-                    summary_lines = [l for l in lines if not l.startswith('#') and l.strip()]
-                    preview = '\n'.join(summary_lines[:10])
-                    if len(summary_lines) > 10:
-                        preview += "\n..."
+                    if not query_lower or query_lower in content.lower():
+                        # Extract date from filename (chat_YYYYMMDD_HHMMSS_sessionid.txt)
+                        filename = log_file.name
+                        try:
+                            parts = filename.replace("chat_", "").replace(".txt", "").split("_")
+                            date_part = parts[0]
+                            time_part = parts[1] if len(parts) > 1 else "000000"
+                            date_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]} {time_part[:2]}:{time_part[2:4]}"
+                        except:
+                            date_str = "Unknown date"
 
-                    results.append({
-                        "date": date_str,
-                        "preview": preview[:500]
-                    })
+                        # Get preview (first meaningful lines)
+                        lines = content.split('\n')
+                        preview_lines = [l for l in lines if l.strip() and not l.startswith('===')][:10]
+                        preview = '\n'.join(preview_lines)
+                        if len(lines) > 10:
+                            preview += "\n..."
 
-                    if len(results) >= limit:
-                        break
+                        results.append({
+                            "date": date_str,
+                            "preview": preview[:500],
+                            "source": "recent",
+                            "mtime": log_file.stat().st_mtime
+                        })
+
+            # 2. Search archived summaries
+            if summaries_dir.exists():
+                summary_files = sorted(
+                    summaries_dir.glob("summary_*.txt"),
+                    key=lambda f: f.stat().st_mtime,
+                    reverse=True
+                )
+
+                for summary_file in summary_files:
+                    content = summary_file.read_text(encoding='utf-8')
+
+                    if not query_lower or query_lower in content.lower():
+                        # Extract date from filename (summary_YYYYMMDD_HHMMSS.txt)
+                        filename = summary_file.name
+                        try:
+                            date_part = filename.replace("summary_", "").replace(".txt", "")
+                            date_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]} {date_part[9:11]}:{date_part[11:13]}"
+                        except:
+                            date_str = "Unknown date"
+
+                        # Get summary preview (skip header lines starting with #)
+                        lines = content.split('\n')
+                        summary_lines = [l for l in lines if not l.startswith('#') and l.strip()]
+                        preview = '\n'.join(summary_lines[:10])
+                        if len(summary_lines) > 10:
+                            preview += "\n..."
+
+                        results.append({
+                            "date": date_str,
+                            "preview": preview[:500],
+                            "source": "archived",
+                            "mtime": summary_file.stat().st_mtime
+                        })
 
             if not results:
-                return {
-                    "content": [{"type": "text", "text": f"No conversation summaries found matching '{query}'. Try different keywords or search without query to see recent conversations."}]
-                }
+                no_logs = not logs_dir.exists() or not list(logs_dir.glob("chat_*.txt"))
+                no_summaries = not summaries_dir.exists() or not list(summaries_dir.glob("summary_*.txt"))
+
+                if no_logs and no_summaries:
+                    return {
+                        "content": [{"type": "text", "text": "No chat history found. This is a new user."}]
+                    }
+                else:
+                    return {
+                        "content": [{"type": "text", "text": f"No conversations found matching '{query}'. Try different keywords or search without query to see recent conversations."}]
+                    }
+
+            # Sort all results by modification time (most recent first)
+            results.sort(key=lambda x: x["mtime"], reverse=True)
+            results = results[:limit]
 
             # Format output
             output = f"Found {len(results)} conversation(s)"
@@ -2329,8 +2366,9 @@ Returns summaries of past conversations that match the query.""",
                 output += f" matching '{query}'"
             output += ":\n\n"
 
-            for i, r in enumerate(results, 1):
-                output += f"📅 **{r['date']}**\n"
+            for r in results:
+                source_label = "[Recent]" if r["source"] == "recent" else "[Archived]"
+                output += f"📅 **{r['date']}** {source_label}\n"
                 output += f"{r['preview']}\n"
                 output += "---\n\n"
 
