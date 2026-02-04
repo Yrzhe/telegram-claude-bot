@@ -4,6 +4,54 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Fix ReviewAgent Date Confusion
+
+### Problem
+ReviewAgent was flagging 2026 dates as incorrect and suggesting "correct all dates to 2025 timeline". This happened because the review prompt had no date context, so Claude defaulted to its training data cutoff (May 2025) as reference.
+
+### Fix
+Added current date to ReviewAgent's evaluation prompt:
+```
+## IMPORTANT: Current Date Context
+**Today's date is {current_date}**. When evaluating dates in the result, use this as reference...
+```
+
+### Files Modified
+- `bot/agent/review.py`: Added `datetime` import and current date injection into review prompt
+
+---
+
+## [2026-02-04] Enhanced Memory System - Proactive Storage & Retrieval
+
+### Problem Addressed
+When users express clear preferences (e.g., "call me 主人", "speak more sharply"), the Agent was not automatically saving these to memory. Users had to explicitly ask "will you remember this?" to trigger memory storage.
+
+### Changes Made
+Enhanced `prompts/memory.md` with more aggressive memory handling:
+
+1. **CRITICAL: Memory Operations Every Message**
+   - Added explicit rule: ALWAYS search memories at START of processing any message
+   - Added explicit rule: ALWAYS save user preferences IMMEDIATELY when expressed
+
+2. **Trigger Phrases That MUST Cause Memory Save**
+   - "叫我..." / "称呼我为..." / "Call me..." → Save addressing preference
+   - "说话...一点" / "语气..." / "风格..." → Save communication style
+   - "我喜欢..." / "我不喜欢..." → Save personal preferences
+   - "以后..." / "从现在开始..." → Save future behavior instructions
+   - Any stated preference about interaction → Save to preferences category
+
+3. **Clear Example of Correct vs Wrong Behavior**
+   - Correct: Save memory BEFORE responding when user states preference
+   - Wrong: Responding with preference applied but NOT saving to memory
+
+### Files Modified
+- `prompts/memory.md`: Added new "CRITICAL" section at top with explicit memory rules
+
+### Expected Behavior After Fix
+User says "以后叫我主人" → Agent IMMEDIATELY calls `memory_save()` → THEN responds "好的，主人"
+
+---
+
 ## [2026-02-04] Mini App Complete UI Redesign v2 + Multi-Select Feature
 
 ### Overview

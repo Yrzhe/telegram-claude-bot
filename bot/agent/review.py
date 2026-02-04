@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Tuple, Optional, List
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,12 @@ class ReviewAgent:
 This is attempt {attempt_number}. Ensure issues from previous attempts have been addressed."""
 
         # Build the review prompt - enhanced for deep research
+        # Include current date so reviewer knows the correct timeline
+        current_date = datetime.now().strftime('%Y-%m-%d')
         review_prompt = f"""You are a research quality reviewer. Evaluate the result with an explorer's mindset.
+
+## IMPORTANT: Current Date Context
+**Today's date is {current_date}**. When evaluating dates in the result, use this as reference. Do NOT flag dates as incorrect just because they are in 2026 - that is the current year.
 
 ## Task Description
 {task_description}
