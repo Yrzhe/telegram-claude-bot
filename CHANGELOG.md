@@ -4,6 +4,34 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Silent Review Loop - No More Rejection Spam
+
+### Problem
+During delegate_and_review tasks, every rejection would send a message to the user showing the rejection reason and retry count. This was annoying as users only care about the final result.
+
+### Changes
+Modified `bot/agent/task_manager.py` to make the review loop silent:
+
+1. **No intermediate messages** - Removed sending of:
+   - Result preview after each attempt
+   - Rejection notifications with feedback
+
+2. **Review log file** - All attempts are logged to a markdown file:
+   - Saved to `data/review_logs/review_{task_id}.md`
+   - Contains: attempt number, timestamp, status, feedback, suggestions
+   - Sent to user only at the end (if there were retries)
+
+3. **Clean final notifications**:
+   - Success: `✅ Task completed (after X attempts)`
+   - Max retries: `⚠️ Task completed after X attempts (review log attached)`
+
+### Files Modified
+- `bot/agent/task_manager.py`:
+  - Added `_save_and_send_review_log()` method
+  - Modified `create_review_task()` to log instead of notify
+
+---
+
 ## [2026-02-04] Fix ReviewAgent Date Confusion
 
 ### Problem

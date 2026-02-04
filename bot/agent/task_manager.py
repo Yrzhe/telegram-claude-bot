@@ -172,6 +172,97 @@ class TaskManager:
         logger.info(f"Sent {sent_count} task files to user {self.user_id}")
         return sent_count, relative_paths
 
+    async def _save_and_send_review_log(
+        self,
+        task_id: str,
+        description: str,
+        review_log: List[Dict]
+    ) -> Optional[Path]:
+        """
+        Save review log to file and send to user.
+
+        Args:
+            task_id: Task ID
+            description: Task description
+            review_log: List of attempt records
+
+        Returns:
+            Path to the log file if created
+        """
+        if not self._working_directory or not review_log:
+            return None
+
+        # Create logs directory
+        logs_dir = self._working_directory / "data" / "review_logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate log content
+        log_path = logs_dir / f"review_{task_id}.md"
+        content = f"""# Review Log: {description}
+
+**Task ID:** {task_id}
+**Total Attempts:** {len(review_log)}
+**Final Status:** {review_log[-1].get('status', 'Unknown')}
+
+---
+
+"""
+        for entry in review_log:
+            attempt = entry.get('attempt', '?')
+            timestamp = entry.get('timestamp', 'N/A')
+            status = entry.get('status', 'Unknown')
+
+            content += f"""## Attempt {attempt}
+
+**Time:** {timestamp}
+**Status:** {'✅ PASSED' if status == 'PASSED' else '❌ REJECTED'}
+
+"""
+            if status == 'REJECTED':
+                feedback = entry.get('feedback', '')
+                if feedback:
+                    content += f"**Rejection Reason:** {feedback}\n\n"
+
+                missing = entry.get('missing_dimensions', [])
+                if missing:
+                    content += "**Missing Dimensions:**\n"
+                    for m in missing:
+                        content += f"- {m}\n"
+                    content += "\n"
+
+                suggestions = entry.get('suggestions', [])
+                if suggestions:
+                    content += "**Improvement Directions:**\n"
+                    for s in suggestions:
+                        content += f"- {s}\n"
+                    content += "\n"
+
+            result_preview = entry.get('result_preview', '')
+            if result_preview:
+                # Truncate for log file
+                preview = result_preview[:500] + "..." if len(result_preview) > 500 else result_preview
+                content += f"**Result Preview:**\n```\n{preview}\n```\n\n"
+
+            content += "---\n\n"
+
+        # Save log file
+        try:
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            logger.info(f"Saved review log: {log_path}")
+
+            # Send log file to user
+            if self._send_file_callback:
+                try:
+                    await self._send_file_callback(str(log_path), f"📋 Review log ({len(review_log)} attempts)")
+                except Exception as e:
+                    logger.error(f"Failed to send review log file: {e}")
+
+            return log_path
+        except Exception as e:
+            logger.error(f"Failed to save review log: {e}")
+            return None
+
     def _create_task_document(self, task: SubAgentTask, prompt: str = "") -> Optional[Path]:
         """Create a task document in running_tasks folder"""
         running_dir = self._get_running_tasks_dir()
@@ -463,6 +554,9 @@ _Task is running..._
                 if self._working_directory and self._send_file_callback:
                     tracker = FileTracker(self._working_directory)
 
+                # Create review log to track all attempts
+                review_log = []
+
                 while task.retry_count < max_attempts:
                     attempt_num = task.retry_count + 1
 
@@ -484,14 +578,12 @@ _Task is running..._
                             self._update_task_document(task, error="Task cancelled")
                             return
 
-                        # Send current result to user
-                        try:
-                            result_preview = result[:8000] if len(result) > 8000 else result
-                            await send_progress_callback(
-                                f"📋 Task Result [Attempt {attempt_num}/{max_attempts}]\n\n{result_preview}"
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to send task result to user: {e}")
+                        # Log this attempt (don't send to user yet)
+                        attempt_log = {
+                            "attempt": attempt_num,
+                            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            "result_preview": result[:2000] if len(result) > 2000 else result,
+                        }
 
                         # Perform quality review
                         suggestions = []
@@ -515,6 +607,11 @@ _Task is running..._
                             passed, feedback = True, ""
 
                         if passed:
+                            # Log successful attempt
+                            attempt_log["status"] = "PASSED"
+                            attempt_log["feedback"] = feedback
+                            review_log.append(attempt_log)
+
                             # Send any files created during execution
                             files_sent = 0
                             file_paths = []
@@ -539,9 +636,16 @@ _Task is running..._
                             # Update and move task document to completed_tasks
                             self._update_task_document(task, result=result)
 
-                            # Send success notification
+                            # Save and send review log file if there were retries
+                            if len(review_log) > 1:
+                                await self._save_and_send_review_log(task_id, description, review_log)
+
+                            # Send final success notification with summary
                             try:
-                                await send_progress_callback("✅ Task review passed! Final result is above.")
+                                summary = f"✅ Task completed"
+                                if len(review_log) > 1:
+                                    summary += f" (after {len(review_log)} attempts)"
+                                await send_progress_callback(summary)
                             except Exception:
                                 pass
 
@@ -553,7 +657,13 @@ _Task is running..._
                                     logger.error(f"Task complete callback error: {cb_err}")
                             return
                         else:
-                            # Review failed - retry if possible
+                            # Review failed - log and retry if possible
+                            attempt_log["status"] = "REJECTED"
+                            attempt_log["feedback"] = feedback
+                            attempt_log["suggestions"] = suggestions
+                            attempt_log["missing_dimensions"] = missing_dimensions
+                            review_log.append(attempt_log)
+
                             task.add_retry_history(
                                 result,
                                 feedback,
@@ -586,9 +696,12 @@ _Task is running..._
 
                                 self._update_task_document(task, result=result)
 
+                                # Save and send review log
+                                await self._save_and_send_review_log(task_id, description, review_log)
+
                                 try:
                                     await send_progress_callback(
-                                        f"⚠️ Max retries reached ({max_attempts}), returning final result."
+                                        f"⚠️ Task completed after {max_attempts} attempts (review log attached)"
                                     )
                                 except Exception:
                                     pass
@@ -600,23 +713,8 @@ _Task is running..._
                                         logger.error(f"Task complete callback error: {cb_err}")
                                 return
                             else:
-                                # Send retry notification with detailed guidance
-                                try:
-                                    retry_msg = f"🔄 Rejected (Attempt {task.retry_count})\n\n"
-                                    retry_msg += f"Issue: {feedback}\n"
-                                    if missing_dimensions:
-                                        retry_msg += f"\nMissing dimensions: {', '.join(missing_dimensions)}\n"
-                                    if suggestions:
-                                        retry_msg += f"\nImprovement directions:\n"
-                                        for s in suggestions[:3]:  # Max 3 suggestions
-                                            retry_msg += f"  - {s}\n"
-                                    retry_msg += f"\nRetrying (Attempt {task.retry_count + 1}/{max_attempts})..."
-                                    await send_progress_callback(retry_msg)
-                                except Exception:
-                                    pass
-
+                                # Continue to next iteration silently (no user notification)
                                 logger.info(f"Sub Agent task {task_id} failed review, retrying ({task.retry_count}/{max_attempts})")
-                                # Continue to next iteration
 
                     except asyncio.CancelledError:
                         task.status = TaskStatus.CANCELLED
