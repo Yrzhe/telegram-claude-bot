@@ -4,6 +4,50 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Enhanced Chat History System - Search, Auto-Archive, and Context Loading
+
+### Problem
+1. Agent couldn't search past conversation summaries - only memories
+2. When session expired, conversations were lost without summary
+3. Agent didn't have context from previous conversations
+
+### Changes Made
+
+**1. New `chat_history_search` tool (`bot/agent/tools.py`)**
+- Agent can now search through `chat_summaries/` directory
+- Use when user asks "remember what we discussed?" or "我们之前讨论的..."
+- Returns matched conversation summaries with dates and previews
+
+**2. Auto-archive on session expiry (`bot/handlers.py`)**
+- New `_auto_archive_on_session_expired()` function
+- When Claude SDK returns "No conversation found" error:
+  - First: Generate summary of current chat log
+  - Then: Archive to `chat_summaries/` directory
+  - Finally: Clear session and retry
+- No more lost conversations when sessions expire
+
+**3. Load recent summaries on agent creation (`bot/handlers.py`)**
+- In `get_agent_for_user()`, now loads last 3 chat summaries
+- Summaries are added to agent's context_summary
+- Agent starts each conversation with awareness of recent history
+
+**4. Added `chat_history_search` to allowed_tools (`bot/agent/client.py`)**
+
+### Files Modified
+- `bot/agent/tools.py`: Added `chat_history_search` tool (~100 lines)
+- `bot/agent/client.py`: Added tool to allowed_tools list
+- `bot/handlers.py`:
+  - Added `_auto_archive_on_session_expired()` function
+  - Modified `get_agent_for_user()` to load recent summaries
+  - Modified 6 session expiry handlers to call auto-archive first
+
+### Expected Behavior After Fix
+- User: "我们之前讨论过什么?" → Agent uses `chat_history_search` to find past conversations
+- Session expires → Summary auto-generated and saved before retry
+- New conversation starts → Agent already knows about recent conversations
+
+---
+
 ## [2026-02-04] Fix Memory System - Missing Tools + Discussion Topic Storage
 
 ### Problem

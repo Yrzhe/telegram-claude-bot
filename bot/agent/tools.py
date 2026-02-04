@@ -2236,6 +2236,113 @@ Parameters:
                 "is_error": True
             }
 
+    # ==================== Chat History Search Tool ====================
+
+    @tool(
+        "chat_history_search",
+        """Search through past conversation summaries to recall what was discussed in previous sessions.
+
+Use this when:
+- User asks "remember what we talked about?" or "我们之前讨论的..."
+- You need to recall context from a previous conversation
+- Looking for specific topics or projects discussed before
+
+Parameters:
+- query: Keywords to search for (e.g., "X agent", "Twitter", "project")
+- limit: Maximum number of summaries to return (default: 5)
+
+Returns summaries of past conversations that match the query.""",
+        {"query": str, "limit": int}
+    )
+    async def chat_history_search(args: dict[str, Any]) -> dict[str, Any]:
+        """Search past conversation summaries"""
+        query = args.get("query", "").strip()
+        limit = args.get("limit", 5)
+
+        if not _working_directory:
+            return {
+                "content": [{"type": "text", "text": "Chat history feature not available"}],
+                "is_error": True
+            }
+
+        try:
+            # Get user's chat_summaries directory
+            summaries_dir = Path(_working_directory).parent / "chat_summaries"
+
+            if not summaries_dir.exists():
+                return {
+                    "content": [{"type": "text", "text": "No chat history found. This is a new user or conversations haven't been archived yet."}]
+                }
+
+            # Find all summary files
+            summary_files = sorted(
+                summaries_dir.glob("summary_*.txt"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )
+
+            if not summary_files:
+                return {
+                    "content": [{"type": "text", "text": "No conversation summaries found. Use /new to archive current conversation."}]
+                }
+
+            # Search through summaries
+            results = []
+            query_lower = query.lower() if query else ""
+
+            for summary_file in summary_files:
+                content = summary_file.read_text(encoding='utf-8')
+
+                # If no query, just return recent summaries
+                if not query_lower or query_lower in content.lower():
+                    # Extract date from filename (summary_YYYYMMDD_HHMMSS.txt)
+                    filename = summary_file.name
+                    try:
+                        date_part = filename.replace("summary_", "").replace(".txt", "")
+                        date_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]} {date_part[9:11]}:{date_part[11:13]}"
+                    except:
+                        date_str = "Unknown date"
+
+                    # Get summary preview (skip header lines starting with #)
+                    lines = content.split('\n')
+                    summary_lines = [l for l in lines if not l.startswith('#') and l.strip()]
+                    preview = '\n'.join(summary_lines[:10])
+                    if len(summary_lines) > 10:
+                        preview += "\n..."
+
+                    results.append({
+                        "date": date_str,
+                        "preview": preview[:500]
+                    })
+
+                    if len(results) >= limit:
+                        break
+
+            if not results:
+                return {
+                    "content": [{"type": "text", "text": f"No conversation summaries found matching '{query}'. Try different keywords or search without query to see recent conversations."}]
+                }
+
+            # Format output
+            output = f"Found {len(results)} conversation(s)"
+            if query:
+                output += f" matching '{query}'"
+            output += ":\n\n"
+
+            for i, r in enumerate(results, 1):
+                output += f"📅 **{r['date']}**\n"
+                output += f"{r['preview']}\n"
+                output += "---\n\n"
+
+            return {"content": [{"type": "text", "text": output}]}
+
+        except Exception as e:
+            logger.error(f"Failed to search chat history: {e}")
+            return {
+                "content": [{"type": "text", "text": f"Failed to search chat history: {str(e)}"}],
+                "is_error": True
+            }
+
     @tool(
         "custom_command_list_media",
         "List all media files for a random_media type command with their statistics.",
@@ -2563,6 +2670,7 @@ Best for: Quick questions, formatting, translation, simple tasks.""",
         memory_list,
         memory_delete,
         memory_stats,
+        chat_history_search,
         custom_command_list,
         custom_command_get,
         custom_command_create,

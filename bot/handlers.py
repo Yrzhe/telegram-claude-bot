@@ -672,6 +672,18 @@ def setup_handlers(
         # Get context summary (from previous /compact)
         context_summary = user_manager.get_context_summary(user_id)
 
+        # Load recent chat history summaries to enhance context
+        recent_summaries = chat_logger.get_recent_summaries(user_id, limit=3)
+        if recent_summaries:
+            history_context = "\n\n## Recent Conversation History\n"
+            history_context += "These are summaries of recent conversations (use chat_history_search for more details):\n\n"
+            for summary in recent_summaries:
+                history_context += f"**{summary['timestamp']}**: {summary['preview']}\n\n"
+            if context_summary:
+                context_summary = context_summary + history_context
+            else:
+                context_summary = history_context
+
         # Get topic context from TopicManager
         topic_mgr = get_topic_manager(user_id)
         topic_context = topic_mgr.get_context_string()
@@ -1274,6 +1286,41 @@ Session Statistics:
             user_msgs = len([l for l in lines if l.startswith('👤')])
             agent_msgs = len([l for l in lines if l.startswith('🤖')])
             return f"[API 总结失败]\n\n对话统计:\n- 用户消息: {user_msgs} 条\n- Agent 回复: {agent_msgs} 条"
+
+    async def _auto_archive_on_session_expired(user_id: int, session_id: str | None):
+        """Auto-archive chat log when session expires (before clearing session)"""
+        if not session_id:
+            return
+
+        try:
+            chat_log = chat_logger.get_current_session_log(user_id, session_id)
+            if not chat_log or len(chat_log) < 100:
+                # Too short, just archive without summary
+                chat_logger.archive_session_log(
+                    user_id, session_id,
+                    "[Session expired - short conversation]"
+                )
+                return
+
+            # Generate summary
+            summary = await _generate_chat_summary(
+                user_id, chat_log, api_config, user_manager
+            )
+
+            # Archive with summary
+            chat_logger.archive_session_log(user_id, session_id, summary)
+            logger.info(f"Auto-archived session {session_id[:8]} for user {user_id} on expiry")
+
+        except Exception as e:
+            logger.error(f"Failed to auto-archive session on expiry: {e}")
+            # Still try to archive the raw log
+            try:
+                chat_logger.archive_session_log(
+                    user_id, session_id,
+                    f"[Auto-archive failed: {str(e)}]"
+                )
+            except:
+                pass
 
     async def storage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
@@ -2906,6 +2953,8 @@ Session Statistics:
             # Check if session not found error, auto retry
             if response.is_error and response.error_message and "No conversation found" in response.error_message:
                 logger.warning(f"User {user_id} session expired, clearing and retrying")
+                # Auto-archive before clearing session
+                await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
                 response = await agent.process_message(
@@ -2985,6 +3034,8 @@ Session Statistics:
             is_session_error = ("exit code 1" in error_str or "No conversation found" in error_str) and resume_session_id
             if is_session_error:
                 logger.warning(f"User {user_id} session expired (exception), clearing and retrying")
+                # Auto-archive before clearing session
+                await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 try:
                     agent = get_agent_for_user(user_id, context.bot)
@@ -3196,6 +3247,8 @@ Session Statistics:
             # Handle session expired error
             if response.is_error and response.error_message and "No conversation found" in response.error_message:
                 logger.warning(f"User {user_id} session expired, clearing and retrying")
+                # Auto-archive before clearing session
+                await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
                 response = await agent.process_message(
@@ -3351,6 +3404,8 @@ Session Statistics:
             # 处理 session 过期错误
             if response.is_error and response.error_message and "No conversation found" in response.error_message:
                 logger.warning(f"User {user_id} session expired, clearing and retrying")
+                # Auto-archive before clearing session
+                await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
                 response = await agent.process_message(
@@ -3535,6 +3590,8 @@ Session Statistics:
             # Check if session not found error, auto retry
             if response.is_error and response.error_message and "No conversation found" in response.error_message:
                 logger.warning(f"User {user_id} session expired, clearing and retrying")
+                # Auto-archive before clearing session
+                await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
                 response = await agent.process_message(
@@ -3579,6 +3636,8 @@ Session Statistics:
             is_session_error = ("exit code 1" in error_str or "No conversation found" in error_str) and resume_session_id
             if is_session_error:
                 logger.warning(f"User {user_id} session expired (exception), clearing and retrying")
+                # Auto-archive before clearing session
+                await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 try:
                     agent = get_agent_for_user(user_id, context.bot)

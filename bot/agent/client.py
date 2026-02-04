@@ -323,6 +323,8 @@ class TelegramAgentClient:
                 "mcp__telegram__memory_list",
                 "mcp__telegram__memory_delete",
                 "mcp__telegram__memory_stats",
+                # Chat history search
+                "mcp__telegram__chat_history_search",
                 # Custom command management tools
                 "mcp__telegram__custom_command_list",
                 "mcp__telegram__custom_command_get",
