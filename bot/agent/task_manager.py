@@ -123,7 +123,8 @@ class TaskManager:
         """Get the running_tasks directory"""
         if not self._working_directory:
             return None
-        running_dir = self._working_directory / "data" / "running_tasks"
+        # _working_directory is already the 'data' directory
+        running_dir = self._working_directory / "running_tasks"
         running_dir.mkdir(parents=True, exist_ok=True)
         return running_dir
 
@@ -131,7 +132,8 @@ class TaskManager:
         """Get the completed_tasks directory"""
         if not self._working_directory:
             return None
-        completed_dir = self._working_directory / "data" / "completed_tasks"
+        # _working_directory is already the 'data' directory
+        completed_dir = self._working_directory / "completed_tasks"
         completed_dir.mkdir(parents=True, exist_ok=True)
         return completed_dir
 
@@ -193,7 +195,8 @@ class TaskManager:
             return None
 
         # Create logs directory
-        logs_dir = self._working_directory / "data" / "review_logs"
+        # _working_directory is already the 'data' directory
+        logs_dir = self._working_directory / "review_logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate log content

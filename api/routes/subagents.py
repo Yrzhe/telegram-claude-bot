@@ -177,6 +177,7 @@ async def get_task_document(
     """
     Get the content of a task document.
     """
+    # working_dir is users/{id}, task files are in users/{id}/data/
     base_path = Path(working_dir) / "data"
 
     # Check running_tasks first

@@ -4,6 +4,41 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Fix Data Directory Paths and Remove Tasks Page
+
+### Problems Fixed
+1. Memory and task files were being saved to wrong `data/data/` subdirectory
+2. Mini app had redundant Tasks page that duplicated Agents page functionality
+3. Two separate `memories.json` files existed due to path bug
+
+### Changes Made
+
+**1. Fixed MemoryManager path (`bot/memory/manager.py`)**
+- `user_data_dir` parameter is already the `data/` directory
+- Changed from `user_data_dir / "data" / "memories.json"` to `user_data_dir / "memories.json"`
+- Merged 10 memories from both files into single correct location
+
+**2. Fixed TaskManager paths (`bot/agent/task_manager.py`)**
+- Fixed `running_tasks`, `completed_tasks`, and `review_logs` directories
+- Now correctly placed in `users/{id}/data/` instead of `users/{id}/data/data/`
+
+**3. Removed Tasks page from Mini App**
+- Removed from TabBar (`webapp/src/components/layout/TabBar.tsx`)
+- Removed route from App.tsx
+- Tasks functionality already covered by Agents page
+
+**4. Cleaned up directory structure**
+- Removed erroneous `data/data/` directory
+- Migrated task files to correct locations
+
+### Files Modified
+- `bot/memory/manager.py` - Fixed memories file path
+- `bot/agent/task_manager.py` - Fixed task directories paths
+- `webapp/src/components/layout/TabBar.tsx` - Removed Tasks tab
+- `webapp/src/App.tsx` - Removed Tasks route
+
+---
+
 ## [2026-02-04] Enhanced Chat History System - Search, Auto-Archive, and Context Loading
 
 ### Problem

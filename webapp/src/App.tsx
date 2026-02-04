@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
 import { FilesPage } from './pages/FilesPage'
-import { TasksPage } from './pages/TasksPage'
 import { SchedulesPage } from './pages/SchedulesPage'
 import { SubAgentsPage } from './pages/SubAgentsPage'
 import { useTelegram } from './hooks/useTelegram'
@@ -86,7 +85,6 @@ function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<FilesPage />} />
-            <Route path="tasks" element={<TasksPage />} />
             <Route path="schedules" element={<SchedulesPage />} />
             <Route path="subagents" element={<SubAgentsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

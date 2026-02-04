@@ -1,9 +1,8 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FolderOpen, ListTodo, Clock, Bot } from 'lucide-react'
+import { FolderOpen, Clock, Bot } from 'lucide-react'
 
 const tabs = [
   { path: '/', icon: FolderOpen, label: 'Files' },
-  { path: '/tasks', icon: ListTodo, label: 'Tasks' },
   { path: '/schedules', icon: Clock, label: 'Schedules' },
   { path: '/subagents', icon: Bot, label: 'Agents' },
 ]

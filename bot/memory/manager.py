@@ -23,10 +23,11 @@ class MemoryManager:
         Initialize memory manager for a user
 
         Args:
-            user_data_dir: Path to user's data directory (e.g., /app/users/{user_id})
+            user_data_dir: Path to user's data directory (e.g., /app/users/{user_id}/data)
         """
         self.user_data_dir = Path(user_data_dir)
-        self.memories_file = self.user_data_dir / "data" / "memories.json"
+        # user_data_dir is already the 'data' directory, so memories.json goes directly in it
+        self.memories_file = self.user_data_dir / "memories.json"
         self._store: Optional[MemoryStore] = None
 
     def _ensure_loaded(self) -> MemoryStore:
