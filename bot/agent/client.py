@@ -317,9 +317,12 @@ class TelegramAgentClient:
                 "mcp__telegram__schedule_delete",
                 # Memory tools
                 "mcp__telegram__memory_save",
+                "mcp__telegram__memory_save_with_supersede",
+                "mcp__telegram__memory_update",
                 "mcp__telegram__memory_search",
                 "mcp__telegram__memory_list",
                 "mcp__telegram__memory_delete",
+                "mcp__telegram__memory_stats",
                 # Custom command management tools
                 "mcp__telegram__custom_command_list",
                 "mcp__telegram__custom_command_get",

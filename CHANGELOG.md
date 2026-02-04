@@ -4,6 +4,42 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Fix Memory System - Missing Tools + Discussion Topic Storage
+
+### Problem
+1. Agent was not saving discussion topics (e.g., "X agent" project idea) to memory
+2. Some memory tools were missing from allowed_tools list
+3. Agent didn't remember meaningful conversations from earlier in the day
+
+### Root Cause Analysis
+1. `allowed_tools` in `client.py` was missing: `memory_save_with_supersede`, `memory_update`, `memory_stats`
+2. `prompts/memory.md` only emphasized saving "user preferences" but not "discussion topics/ideas/projects"
+3. Agent didn't recognize that project discussions should be saved as memories
+
+### Changes Made
+
+**1. Added missing memory tools to `bot/agent/client.py`:**
+- `mcp__telegram__memory_save_with_supersede`
+- `mcp__telegram__memory_update`
+- `mcp__telegram__memory_stats`
+
+**2. Enhanced `prompts/memory.md` with new Rule 3:**
+- "ALWAYS Save Discussion Topics & Ideas"
+- Added table of what counts as "meaningful discussion" (projects, technical discussions, plans, brainstorming)
+- Added example showing X/Twitter agent discussion being saved
+- Emphasized: "Next time user asks 'remember what we discussed?' and you have no idea" as WRONG behavior
+
+### Files Modified
+- `bot/agent/client.py`: Added 3 missing memory tools to allowed_tools
+- `prompts/memory.md`: Added Rule 3 for discussion topic storage
+
+### Expected Behavior After Fix
+- When user discusses a project idea, Agent saves it to memory under `goals` category
+- When user asks "remember what we talked about?", Agent searches memories first
+- User no longer needs to explicitly say "remember this" for important discussions
+
+---
+
 ## [2026-02-04] Fix Sub Agent Misleading "Cannot Send File" Message
 
 ### Problem

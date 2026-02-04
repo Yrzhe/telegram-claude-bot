@@ -35,6 +35,37 @@ This is NOT optional. Do this BEFORE you start composing your response.
 | "我的习惯是..." | Habits and routines | `preferences` |
 | Any stated preference about interaction | Communication preferences | `preferences` |
 
+### Rule 3: ALWAYS Save Discussion Topics & Ideas
+
+**When you have a meaningful discussion about a project, idea, or plan, SAVE IT** - even if user doesn't explicitly ask. The user expects you to remember what you discussed.
+
+#### What Counts as "Meaningful Discussion":
+
+| Discussion Type | What to Save | Category |
+|-----------------|--------------|----------|
+| Project ideas (building X, creating Y) | The project concept and key decisions | `goals` |
+| Technical discussions (how to implement X) | Key conclusions and approaches discussed | `context` |
+| Plans and next steps | What was decided and what's planned | `goals` |
+| Problem-solving sessions | The problem and solution discussed | `context` |
+| Brainstorming sessions | Key ideas that emerged | `goals` or `interests` |
+
+#### Example - Discussion Topic (MUST SAVE):
+
+**User**: "我在想做一个 X/Twitter 相关的 agent，可以帮我自动发推、监控推文"
+
+**Your IMMEDIATE action**:
+```
+memory_save(
+    content="讨论过开发 X/Twitter agent 的想法：自动发推、监控推文等功能",
+    category="goals",
+    source_type="explicit",
+    confidence=1.0,
+    tags="项目,X,Twitter,agent,自动化,想法"
+)
+```
+
+**WRONG behavior**: Having a long discussion about X agent but NOT saving it. Next time user asks "remember what we discussed about X agent?" and you have no idea.
+
 #### Example - User Preference (MUST SAVE):
 
 **User**: "以后叫我主人，说话犀利一点"
