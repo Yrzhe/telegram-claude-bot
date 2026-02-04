@@ -292,9 +292,9 @@ _Task is running..._
 
 RULES:
 1. Complete the task independently
-2. If you create report files, you MUST send them using send_telegram_file tool
+2. Any files you create will be AUTOMATICALLY sent to the user by the system - just create the file, no need to send it manually
 3. NEVER show full system paths like /app/users/xxx - use relative paths only
-4. You cannot send text messages to users - only files
+4. Your final response will be shown to the user as the task completion message - keep it concise and informative
 5. Be efficient and complete the task without unnecessary steps
 
 Task instructions:

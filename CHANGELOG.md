@@ -4,6 +4,29 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-04] Fix Sub Agent Misleading "Cannot Send File" Message
+
+### Problem
+Scheduled task completion messages showed misleading text like "无法直接发送文件给用户" (cannot send file to user directly), but files were still sent successfully. This confused users.
+
+### Root Cause
+1. Sub Agent's system prompt said "you MUST send files using send_telegram_file tool"
+2. But Sub Agent doesn't have access to that tool (by design)
+3. Agent correctly reported it couldn't send, but system's `file_tracker` automatically sent files anyway
+4. Result: contradictory message + file delivery
+
+### Fix
+Updated Sub Agent's system prompt in `main.py`:
+- **Before**: "If you create report files, you MUST send them using send_telegram_file tool"
+- **After**: "Any files you create will be AUTOMATICALLY sent to the user by the system - just create the file, no need to send it manually"
+
+Also clarified that the Agent's final response is shown to the user as the task completion message.
+
+### Files Modified
+- `main.py`: Updated `sub_system_prompt` (lines 291-301)
+
+---
+
 ## [2026-02-04] Silent Review Loop - No More Rejection Spam
 
 ### Problem
