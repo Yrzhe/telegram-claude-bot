@@ -296,8 +296,10 @@ RULES:
 3. NEVER show full system paths like /app/users/xxx - use relative paths only
 4. Your final response will be shown to the user as the task completion message - keep it concise and informative
 5. Be efficient and complete the task without unnecessary steps
+6. If the task involves reminding about specific items (commands, links, etc.), ALWAYS include those specific details in your response
 
 Task instructions:
+{prompt}
 """
 
             try:

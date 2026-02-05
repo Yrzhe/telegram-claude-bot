@@ -4,6 +4,24 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-05] Fix Scheduled Task Missing Context
+
+### Problem
+- Scheduled tasks sent generic messages instead of specific task content
+- When user asked follow-up questions, Bot said "we never discussed this"
+- Example: SEO Skills reminder didn't include the specific npx commands
+
+### Root Cause
+- `sub_system_prompt` ended with "Task instructions:" but prompt content was not appended
+- Sub Agent received prompt as user message but system prompt was incomplete
+- Agent generated generic response without knowing specific task details
+
+### Fix
+- Modified `main.py` `execute_scheduled_task()` to include `{prompt}` in system prompt
+- Added rule to always include specific details (commands, links) in reminder responses
+
+---
+
 ## [2026-02-04] Fix Chat History Search to Include Recent Logs
 
 ### Problem
