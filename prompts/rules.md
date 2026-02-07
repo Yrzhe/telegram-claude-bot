@@ -300,3 +300,64 @@ delegate_and_review(
 
 **Don't be passive!** If one method doesn't work, try another. If local search fails, use web search. If it's complex, delegate. The user expects you to actually FIND the information, not just report that you couldn't find it.
 
+---
+
+## Task Context Recovery (CRITICAL)
+
+When user asks about "previous tasks", "what happened with X", or "how's the task going", you MUST search task history:
+
+### Recognition Patterns
+
+User is asking about past tasks when they say:
+- "之前的任务" / "昨天让你做的" / "那个任务怎么样了"
+- "派给 subagent 的任务" / "后台任务"
+- "你不是在帮我找..." / "上次让你调研的..."
+- "进度怎么样" / "完成了吗"
+- Any reference to a previously requested task
+
+### Required Search Steps
+
+1. **Search completed_tasks/ directory**:
+   - Use `Glob` to find task documents: `completed_tasks/*.md`
+   - Read recent task documents to find matching descriptions
+
+2. **Search running_tasks/ directory**:
+   - Check for still-running tasks: `running_tasks/*.md`
+
+3. **Search chat history**:
+   - Use `chat_history_search` to find when user made the request
+
+4. **Check memory system**:
+   - Use `memory_search` for task-related memories
+
+### Example - User Asks About Previous Task
+
+**User**: "昨天让你找的那个 medium 文章怎么样了"
+
+**Your REQUIRED actions**:
+```
+1. Glob("completed_tasks/*.md") → Find recent task files
+2. Read each recent task document to find one matching "medium"
+3. If found: Report the task result to user
+4. If not found in completed_tasks:
+   - Check running_tasks/ for still-running tasks
+   - Search chat_history for the original request
+   - Tell user what you found
+```
+
+**WRONG response**:
+```
+"I don't have any record of that. Can you tell me more?"
+```
+
+**RIGHT response**:
+```
+1. Search completed_tasks/ → Found b1d9ce00.md
+2. Read the file → Task was about Medium article, completed with partial result
+3. Report to user: "找到了！昨天的任务 (ID: b1d9ce00) 已完成，但由于付费墙限制只获取到了部分内容..."
+```
+
+### Key Principle for Task Recovery
+
+**Session memory is volatile. Task documents are persistent.** Even if you don't remember the task in your context, the task documents in `completed_tasks/` and `running_tasks/` contain the full history. ALWAYS check these directories when user asks about previous tasks.
+

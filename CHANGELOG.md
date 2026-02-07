@@ -4,6 +4,43 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-08] Task Context Recovery: Fix Agent Forgetting Delegated Tasks
+
+### Problem
+- User asked bot to fetch a Medium article, bot delegated to subagent
+- Next day, user asked about progress, bot said "I don't remember this"
+- Root cause: TaskManager stores tasks in memory only, session expires after 1 hour
+- Task documents are saved to `completed_tasks/` but Agent doesn't know to check there
+
+### Solution: Two-Part Fix
+
+#### 1. Task Context Recovery Rules (`prompts/rules.md`)
+Added new section "Task Context Recovery (CRITICAL)" that instructs Agent to:
+- Recognize when user asks about previous tasks (patterns: "之前的任务", "那个任务怎么样了", etc.)
+- Search `completed_tasks/*.md` and `running_tasks/*.md` directories
+- Use `chat_history_search` to find original request context
+- Report task results even if session context is lost
+
+#### 2. Task Memory Saving Rules (`prompts/memory.md`)
+Added new rule "Rule 4: ALWAYS Save Delegated Task Info" that requires Agent to:
+- Save task description, ID, and key identifiers to memory when delegating
+- Use `memory_save` with category="context" and relevant tags
+- Enable retrieval via `memory_search` in future sessions
+
+### Key Insight
+Session memory is volatile (1-hour timeout), but:
+- Task documents in `completed_tasks/` persist permanently
+- Memory system (`memory_save`) persists permanently
+- Chat logs persist permanently
+
+Agent now knows to leverage these persistent sources when session context is lost.
+
+### Modified Files
+- `prompts/rules.md` - Added Task Context Recovery section
+- `prompts/memory.md` - Added Rule 4 for delegated task memory
+
+---
+
 ## [2026-02-07] Constraint Extraction: Hard-coded User Correction Injection
 
 ### Problem

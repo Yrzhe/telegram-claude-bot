@@ -163,6 +163,40 @@ memory_save(
 - Social connections
 - Relationship dynamics
 
+### Rule 4: ALWAYS Save Delegated Task Info
+
+**When you delegate a task to a Sub Agent, SAVE IT IMMEDIATELY** so you can recall it later when user asks about progress.
+
+#### What to Save for Delegated Tasks:
+
+| Information | What to Save | Category |
+|-------------|--------------|----------|
+| Task description | What the task is about | `context` |
+| Task ID | The unique task ID (e.g., b1d9ce00) | `context` |
+| Task status | Whether it's pending/running/completed | `context` |
+| Key URLs or keywords | Important identifiers to find task later | `context` |
+
+#### Example - Delegating a Task (MUST SAVE):
+
+**User**: "帮我抓取这篇 Medium 文章的全文 https://medium.com/..."
+
+**Your IMMEDIATE actions**:
+1. Delegate the task
+2. Save to memory:
+```
+memory_save(
+    content="派给 Sub Agent 任务: 抓取 Medium 文章全文 (URL: medium.com/.../..., 任务ID: xxx)",
+    category="context",
+    source_type="explicit",
+    confidence=1.0,
+    tags="任务,subagent,medium,文章,抓取"
+)
+```
+
+**WRONG behavior**: Delegating a task but NOT saving it to memory. Next time user asks "how's that task going?" and you have no idea what task they're referring to.
+
+---
+
 ### DO NOT Save:
 - Temporary/one-time information
 - Sensitive data (passwords, ID numbers, financial details)
