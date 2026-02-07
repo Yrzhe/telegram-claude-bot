@@ -10,16 +10,19 @@ All notable changes are documented in this file. Newest changes at the top.
 - User sent messages but got no response
 - Logs showed `turns=0, tokens=0, cost=$0.0000` and `error: None`
 - Session resume was failing silently without triggering retry
+- When retry did happen, previous conversation context was lost
 
 ### Root Cause
 - Session expired on server but SDK returned `is_error=True` with `error_message=None`
 - Existing check only looked for "No conversation found" in error message
 - When error_message is None, the retry logic was not triggered
+- Retry logic didn't load previous chat history as context
 
 ### Fix
 - Modified session failure detection in `bot/handlers.py`
 - Now also checks for `is_error=True AND num_turns=0 AND resume_session_id exists`
-- This catches silent failures where SDK returns error without message
+- **NEW**: When retrying, loads previous chat history from `chat_logs/` as context
+- Context limited to last 8000 chars to avoid token overflow
 - Applied to all 3 message handlers: text, voice, and image
 
 ---

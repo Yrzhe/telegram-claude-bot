@@ -2960,12 +2960,30 @@ Session Statistics:
 
             if session_failed:
                 logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
+
+                # Get chat history BEFORE archiving (so we can use it as context)
+                chat_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
+
+                # Build message with context from previous conversation
+                if chat_history and len(chat_history) > 100:
+                    # Limit context to last 8000 chars to avoid token overflow
+                    context_text = chat_history[-8000:] if len(chat_history) > 8000 else chat_history
+                    context_message = f"""[Previous conversation context - session expired, continuing from here]
+{context_text}
+
+[Current message from user]
+{user_message}"""
+                    logger.info(f"User {user_id} retrying with {len(context_text)} chars of context")
+                else:
+                    context_message = user_message
+
                 response = await agent.process_message(
-                    user_message,
+                    context_message,
                     None,
                     progress_callback=update_progress
                 )
@@ -3260,12 +3278,29 @@ Session Statistics:
 
             if session_failed:
                 logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
+
+                # Get chat history BEFORE archiving (so we can use it as context)
+                chat_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
+
+                # Build message with context from previous conversation
+                if chat_history and len(chat_history) > 100:
+                    context_text = chat_history[-8000:] if len(chat_history) > 8000 else chat_history
+                    context_message = f"""[Previous conversation context - session expired, continuing from here]
+{context_text}
+
+[Current message from user]
+{user_message}"""
+                    logger.info(f"User {user_id} retrying with {len(context_text)} chars of context")
+                else:
+                    context_message = user_message
+
                 response = await agent.process_message(
-                    user_message,
+                    context_message,
                     None,
                     progress_callback=update_progress
                 )
@@ -3423,12 +3458,29 @@ Session Statistics:
 
             if session_failed:
                 logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
+
+                # Get chat history BEFORE archiving (so we can use it as context)
+                chat_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
+
+                # Build message with context from previous conversation
+                if chat_history and len(chat_history) > 100:
+                    context_text = chat_history[-8000:] if len(chat_history) > 8000 else chat_history
+                    context_message = f"""[Previous conversation context - session expired, continuing from here]
+{context_text}
+
+[Current message from user]
+{user_message}"""
+                    logger.info(f"User {user_id} retrying with {len(context_text)} chars of context")
+                else:
+                    context_message = user_message
+
                 response = await agent.process_message(
-                    user_message,
+                    context_message,
                     None,
                     progress_callback=update_progress
                 )
