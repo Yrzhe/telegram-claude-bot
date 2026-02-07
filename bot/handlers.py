@@ -3014,6 +3014,19 @@ Session Statistics:
             message_to_send = user_message
             session_info = session_manager.get_session_info(user_id)
 
+            # === CONSTRAINT EXTRACTION: Extract user corrections from recent chat ===
+            # This ensures Agent doesn't ignore user corrections
+            if resume_session_id:
+                try:
+                    from .constraint_extractor import get_constraints_prefix
+                    recent_chat = chat_logger.get_current_session_log(user_id, resume_session_id)
+                    constraints_prefix = get_constraints_prefix(recent_chat, max_messages=10)
+                    if constraints_prefix:
+                        message_to_send = constraints_prefix + "\n" + user_message
+                        logger.info(f"User {user_id}: Injected constraints into message")
+                except Exception as e:
+                    logger.error(f"Failed to extract constraints: {e}")
+
             if resume_session_id and session_info:
                 elapsed_seconds = session_info.get('elapsed_seconds', 0)
                 # If more than 10 minutes since last message, include recent chat history
@@ -3028,7 +3041,7 @@ Session Statistics:
 {history_text}
 
 [Current message from user]
-{user_message}"""
+{message_to_send}"""
                         logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap")
 
             if resume_session_id:

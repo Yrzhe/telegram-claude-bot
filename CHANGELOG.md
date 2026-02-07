@@ -4,6 +4,49 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-07] Constraint Extraction: Hard-coded User Correction Injection
+
+### Problem
+- Previous fix (prompt rules) relied on Claude "voluntarily" following rules
+- Claude still ignores user corrections even when explicitly instructed
+- User says "不要提产品名" 4-5 times but Agent keeps mentioning them
+
+### Solution: Hard-coded Constraint Injection
+Instead of relying on Claude to remember, we now **force** constraints into every message:
+
+1. **New module**: `bot/constraint_extractor.py`
+   - Scans recent 10 messages for correction patterns
+   - Patterns: "不要", "别", "你怎么又忘了", "我说的是", "don't", etc.
+   - Extracts constraint phrases automatically
+
+2. **Integration**: Modified `_process_user_message()` in handlers.py
+   - Before sending message to Agent, extract constraints from chat history
+   - Prepend constraints as explicit prefix to user message
+   - Agent sees: `[⚠️ ACTIVE CONSTRAINTS]\n1. 不要提具体产品名字\n...\n[User message]`
+
+### How It Works
+```
+User: "帮我写推文"
+       ↓
+[Scan recent chat for corrections]
+       ↓
+[Found: "不要提具体产品名字", "只讲打标签的事情"]
+       ↓
+Agent receives:
+"[⚠️ ACTIVE CONSTRAINTS - You MUST follow these:]
+1. 不要提具体产品名字
+2. 只讲打标签的事情
+[Your response MUST NOT violate any of the above constraints.]
+
+帮我写推文"
+```
+
+### Modified Files
+- `bot/constraint_extractor.py` - NEW: Constraint extraction logic
+- `bot/handlers.py` - Integrated constraint injection into message processing
+
+---
+
 ## [2026-02-07] User Correction Priority Rule
 
 ### Problem
