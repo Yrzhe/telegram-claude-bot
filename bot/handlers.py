@@ -684,6 +684,54 @@ def setup_handlers(
             else:
                 context_summary = history_context
 
+        # === MEMORY AGENT: Auto-load relevant memories at conversation start ===
+        try:
+            from .memory import MemoryManager
+            memory_manager = MemoryManager(user_data_path)
+
+            # Search for relevant memories (preferences, goals, recent context)
+            memory_context_parts = []
+
+            # Load user preferences (always important)
+            preferences = memory_manager.search_memories(category="preferences", limit=5)
+            if preferences:
+                pref_lines = [f"- {m.content}" for m in preferences]
+                memory_context_parts.append(f"**User Preferences:**\n" + "\n".join(pref_lines))
+
+            # Load recent interests and goals
+            interests = memory_manager.search_memories(category="interests", limit=3)
+            goals = memory_manager.search_memories(category="goals", limit=3)
+
+            if interests:
+                int_lines = [f"- {m.content}" for m in interests]
+                memory_context_parts.append(f"**Current Interests:**\n" + "\n".join(int_lines))
+
+            if goals:
+                goal_lines = [f"- {m.content}" for m in goals]
+                memory_context_parts.append(f"**Active Goals/Projects:**\n" + "\n".join(goal_lines))
+
+            # Load career and personal context
+            career = memory_manager.search_memories(category="career", limit=2)
+            if career:
+                career_lines = [f"- {m.content}" for m in career]
+                memory_context_parts.append(f"**Career Context:**\n" + "\n".join(career_lines))
+
+            # Build memory context string
+            if memory_context_parts:
+                memory_context = "\n\n## User Memory (Pre-loaded)\n"
+                memory_context += "These memories were automatically loaded. Use them to personalize your responses:\n\n"
+                memory_context += "\n\n".join(memory_context_parts)
+
+                if context_summary:
+                    context_summary = context_summary + memory_context
+                else:
+                    context_summary = memory_context
+
+                logger.debug(f"User {user_id}: Loaded {len(preferences) + len(interests) + len(goals) + len(career)} memories into context")
+
+        except Exception as e:
+            logger.error(f"Failed to pre-load memories for user {user_id}: {e}")
+
         # Get topic context from TopicManager
         topic_mgr = get_topic_manager(user_id)
         topic_context = topic_mgr.get_context_string()
@@ -1310,6 +1358,28 @@ Session Statistics:
             # Archive with summary
             chat_logger.archive_session_log(user_id, session_id, summary)
             logger.info(f"Auto-archived session {session_id[:8]} for user {user_id} on expiry")
+
+            # === MEMORY AGENT: Auto-analyze and save missed memories ===
+            # Run memory analysis in background to extract important info from conversation
+            try:
+                from .memory import run_memory_analysis
+                user_dir = user_manager.get_user_directory(user_id)
+
+                # Run analysis (this uses a separate Claude call to extract memories)
+                saved_memories, memory_notification = await run_memory_analysis(
+                    user_id=user_id,
+                    user_data_dir=user_dir,
+                    conversation=chat_log,
+                    api_config=api_config,
+                )
+
+                if saved_memories:
+                    logger.info(f"Memory Agent: Extracted {len(saved_memories)} memories from expired session for user {user_id}")
+                    # Note: We don't send notification here as session already expired
+                    # The memories are silently saved for future use
+
+            except Exception as e:
+                logger.error(f"Memory analysis failed on session expiry for user {user_id}: {e}")
 
         except Exception as e:
             logger.error(f"Failed to auto-archive session on expiry: {e}")
@@ -2938,6 +3008,29 @@ Session Statistics:
             # Get session ID (if exists)
             resume_session_id = session_manager.get_session_id(user_id)
 
+            # Check if we need to include chat history context proactively
+            # This handles cases where Claude's internal session might be stale
+            # even though our session ID is still valid
+            message_to_send = user_message
+            session_info = session_manager.get_session_info(user_id)
+
+            if resume_session_id and session_info:
+                elapsed_seconds = session_info.get('elapsed_seconds', 0)
+                # If more than 10 minutes since last message, include recent chat history
+                # to ensure context is preserved even if Claude's session is stale
+                CONTEXT_THRESHOLD_SECONDS = 600  # 10 minutes
+                if elapsed_seconds > CONTEXT_THRESHOLD_SECONDS:
+                    recent_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+                    if recent_history and len(recent_history) > 100:
+                        # Get last 6000 chars to leave room for new message
+                        history_text = recent_history[-6000:] if len(recent_history) > 6000 else recent_history
+                        message_to_send = f"""[Recent conversation context - continuing after {elapsed_seconds // 60} minutes]
+{history_text}
+
+[Current message from user]
+{user_message}"""
+                        logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap")
+
             if resume_session_id:
                 logger.info(f"User {user_id} resuming session: {resume_session_id[:8]}...")
             else:
@@ -2945,7 +3038,7 @@ Session Statistics:
 
             # Process message (with progress callback)
             response = await agent.process_message(
-                user_message,
+                message_to_send,
                 resume_session_id,
                 progress_callback=update_progress
             )
@@ -3257,6 +3350,24 @@ Session Statistics:
             agent = get_agent_for_user(user_id, context.bot)
             resume_session_id = session_manager.get_session_id(user_id)
 
+            # Check if we need to include chat history context proactively
+            message_to_send = user_message
+            session_info = session_manager.get_session_info(user_id)
+
+            if resume_session_id and session_info:
+                elapsed_seconds = session_info.get('elapsed_seconds', 0)
+                CONTEXT_THRESHOLD_SECONDS = 600  # 10 minutes
+                if elapsed_seconds > CONTEXT_THRESHOLD_SECONDS:
+                    recent_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+                    if recent_history and len(recent_history) > 100:
+                        history_text = recent_history[-6000:] if len(recent_history) > 6000 else recent_history
+                        message_to_send = f"""[Recent conversation context - continuing after {elapsed_seconds // 60} minutes]
+{history_text}
+
+[Current message from user - voice]
+{user_message}"""
+                        logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap (voice)")
+
             if resume_session_id:
                 logger.info(f"User {user_id} resuming session with voice: {resume_session_id[:8]}...")
             else:
@@ -3264,7 +3375,7 @@ Session Statistics:
 
             # Process message
             response = await agent.process_message(
-                user_message,
+                message_to_send,
                 resume_session_id,
                 progress_callback=update_progress
             )
@@ -3437,6 +3548,24 @@ Session Statistics:
             agent = get_agent_for_user(user_id, context.bot)
             resume_session_id = session_manager.get_session_id(user_id)
 
+            # Check if we need to include chat history context proactively
+            message_to_send = user_message
+            session_info = session_manager.get_session_info(user_id)
+
+            if resume_session_id and session_info:
+                elapsed_seconds = session_info.get('elapsed_seconds', 0)
+                CONTEXT_THRESHOLD_SECONDS = 600  # 10 minutes
+                if elapsed_seconds > CONTEXT_THRESHOLD_SECONDS:
+                    recent_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+                    if recent_history and len(recent_history) > 100:
+                        history_text = recent_history[-6000:] if len(recent_history) > 6000 else recent_history
+                        message_to_send = f"""[Recent conversation context - continuing after {elapsed_seconds // 60} minutes]
+{history_text}
+
+[Current message from user - image]
+{user_message}"""
+                        logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap (image)")
+
             if resume_session_id:
                 logger.info(f"User {user_id} resuming session with image: {resume_session_id[:8]}...")
             else:
@@ -3444,7 +3573,7 @@ Session Statistics:
 
             # 处理消息
             response = await agent.process_message(
-                user_message,
+                message_to_send,
                 resume_session_id,
                 progress_callback=update_progress
             )
@@ -3652,8 +3781,26 @@ Session Statistics:
             agent = get_agent_for_user(user_id, context.bot)
             resume_session_id = session_manager.get_session_id(user_id)
 
+            # Check if we need to include chat history context proactively
+            message_to_send = user_message
+            session_info = session_manager.get_session_info(user_id)
+
+            if resume_session_id and session_info:
+                elapsed_seconds = session_info.get('elapsed_seconds', 0)
+                CONTEXT_THRESHOLD_SECONDS = 600  # 10 minutes
+                if elapsed_seconds > CONTEXT_THRESHOLD_SECONDS:
+                    recent_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+                    if recent_history and len(recent_history) > 100:
+                        history_text = recent_history[-6000:] if len(recent_history) > 6000 else recent_history
+                        message_to_send = f"""[Recent conversation context - continuing after {elapsed_seconds // 60} minutes]
+{history_text}
+
+[Current message from user - document]
+{user_message}"""
+                        logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap (document)")
+
             response = await agent.process_message(
-                user_message,
+                message_to_send,
                 resume_session_id,
                 progress_callback=update_progress
             )

@@ -4,6 +4,85 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-07] Memory Agent: Automatic Memory Loading & Extraction
+
+### Problem
+- Main Agent doesn't proactively search or save memories during conversations
+- User preferences and interests not automatically loaded at conversation start
+- Memories only extracted when user manually runs `/new` command
+- Agent "forgets" to use memory tools even though prompted to do so
+
+### Solution: Memory Agent Architecture
+Implemented a separate "Memory Agent" that handles memory operations automatically:
+
+1. **Pre-conversation Memory Loading** (in `get_agent_for_user()`):
+   - Automatically searches and loads relevant memories when creating agent
+   - Loads: user preferences, current interests, active goals/projects, career context
+   - Injects loaded memories into system prompt context
+   - Main Agent sees these memories without needing to call memory tools
+
+2. **Post-conversation Memory Extraction** (in `_auto_archive_on_session_expired()`):
+   - When session expires, automatically runs `run_memory_analysis()`
+   - Uses Claude to analyze conversation and extract missed memories
+   - Silently saves important info (preferences, interests, goals) for future use
+   - No longer requires user to manually `/new` to trigger memory extraction
+
+### How It Works
+```
+[User sends message]
+       ↓
+[Memory Agent: Load relevant memories into context]
+       ↓
+[Main Agent: Process message with memory context]
+       ↓
+[Session expires/ends]
+       ↓
+[Memory Agent: Analyze conversation, extract & save memories]
+```
+
+### Benefits
+- User preferences are always applied (tone, style, interests)
+- Important discussions are automatically remembered
+- Main Agent can focus on conversation without memory management burden
+- Memories accumulate over time, improving personalization
+
+### Modified Files
+- `bot/handlers.py` - Added memory loading in `get_agent_for_user()` and memory extraction in `_auto_archive_on_session_expired()`
+
+---
+
+## [2026-02-07] Proactive Context Loading & Improved Search Behavior
+
+### Problem 1: Context Loss After Time Gap
+- User replies after a delay (e.g., 10+ minutes) but agent loses conversation context
+- Claude API session might be stale internally even though our session ID is valid
+- Previously context was only loaded during explicit session failure retry
+
+### Problem 2: Passive Search Behavior
+- When user asks to search for something, agent only searches memory/chat history
+- Agent gives up after local search fails instead of using web search
+- Agent doesn't proactively delegate complex research to sub-agents
+
+### Fix 1: Proactive Context Loading
+- Modified `bot/handlers.py` to always check time since last message
+- If >10 minutes elapsed, automatically include recent chat history in message
+- Applied to all 4 message handlers: text, voice, image, and document
+- Uses last 6000 chars of chat log to preserve context without token overflow
+- Logs when context is proactively included for debugging
+
+### Fix 2: Proactive Search Instructions
+- Added new "Proactive Search Behavior" section to `prompts/rules.md`
+- Instructs agent to try multiple search methods (memory → chat history → web search)
+- Provides example of correct vs wrong behavior when searching
+- Emphasizes using web search when local search fails
+- Recommends delegating complex research to sub-agents
+
+### Modified Files
+- `bot/handlers.py` - Added proactive context loading to all handlers
+- `prompts/rules.md` - Added proactive search behavior instructions
+
+---
+
 ## [2026-02-07] Fix Silent Session Resume Failure
 
 ### Problem
