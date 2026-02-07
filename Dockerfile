@@ -19,6 +19,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Install Claude CLI (Claude Agent SDK dependency)
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install agent-browser for headless browser automation
+RUN npm install -g agent-browser
+
+# Install Playwright browsers and system dependencies for agent-browser
+RUN npx playwright install chromium && npx playwright install-deps chromium
+
 # Copy Python dependencies
 COPY requirements.txt .
 

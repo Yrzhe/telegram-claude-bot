@@ -4,6 +4,33 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-08] Install agent-browser for Headless Browser Automation
+
+### Problem
+- Bot only had `web_fetch` which cannot handle JavaScript-rendered pages
+- Medium friend links need browser rendering to get full content
+- `agent-browser` skill existed but CLI tool was not installed
+
+### Solution
+- Added `agent-browser` (v0.9.1) to Dockerfile
+- Added Playwright chromium browser and system dependencies
+- Bot can now use `agent-browser` skill for:
+  - Opening and navigating web pages
+  - Extracting content from JS-heavy sites
+  - Taking screenshots
+  - Form filling and automation
+
+### Modified Files
+- `Dockerfile` - Added `npm install -g agent-browser` and Playwright setup
+
+### Docker Image Size Impact
+- agent-browser package: ~4.4 MB
+- Playwright chromium: ~167 MB
+- System dependencies: ~114 MB
+- Total increase: ~285 MB
+
+---
+
 ## [2026-02-08] Task Context Recovery: Fix Agent Forgetting Delegated Tasks
 
 ### Problem
