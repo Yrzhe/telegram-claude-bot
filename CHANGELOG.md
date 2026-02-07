@@ -4,6 +4,32 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-07] User Correction Priority Rule
+
+### Problem
+- Agent repeatedly ignores user corrections during conversation
+- User says "don't mention product names" → Agent still mentions them
+- User corrects 4-5 times but Agent keeps making the same mistake
+- Recent messages should be preserved but Agent acts like it forgot
+
+### Root Cause
+- Claude doesn't treat user corrections as hard constraints
+- When generating long outputs, earlier constraints get "forgotten"
+- This is a Claude behavior issue, not a context compression issue
+
+### Fix
+- Added "User Corrections Are Absolute Priority" section to `prompts/rules.md`
+- Instructions for Agent to:
+  1. Scan recent 5-10 messages for corrections before generating output
+  2. List all constraints from user corrections
+  3. Verify output against ALL constraints before sending
+  4. Recognition patterns: "不要", "别", "你怎么又忘了", etc.
+
+### Modified Files
+- `prompts/rules.md` - Added constraint priority rules at the top
+
+---
+
 ## [2026-02-07] Memory Agent: Automatic Memory Loading & Extraction
 
 ### Problem

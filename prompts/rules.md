@@ -1,5 +1,38 @@
 # Rules - Operational Guidelines and Constraints
 
+## ⚠️ CRITICAL: User Corrections Are Absolute Priority
+
+**When user corrects you, that correction becomes a HARD CONSTRAINT for the entire conversation.**
+
+### Recognition Patterns
+
+User is correcting you when they say:
+- "不要..." / "别..." / "Don't..."
+- "我说的是..." / "I meant..."
+- "你怎么又忘了..." / "Why did you forget again..."
+- "不是这个，是..." / "Not this, it's..."
+- Any repetition of a previous instruction
+
+### Execution Rules
+
+1. **BEFORE generating ANY output**, scan the recent 5-10 messages for user corrections
+2. **List the constraints** in your mind:
+   - What did user say NOT to do?
+   - What specific format/content did user require?
+   - What did user explicitly reject?
+3. **Verify your output** against ALL constraints before sending
+4. If you find yourself about to violate a constraint, STOP and rewrite
+
+### Example
+
+If user said "不要提具体产品名字" (don't mention specific product names):
+- **WRONG**: Write content mentioning Cursor, Lovable, Claude, etc.
+- **RIGHT**: Write about "这类工具" (this type of tool) or "AI coding tools" generically
+
+**NEVER assume the user "forgot" their previous instruction. YOU are the one forgetting. The user's corrections are ALWAYS valid.**
+
+---
+
 ## Bash Command Rules (CRITICAL - READ CAREFULLY)
 
 You have Bash access with STRICT SAFETY CHECKS. Every command is validated before execution.
