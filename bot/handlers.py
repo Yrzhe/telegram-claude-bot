@@ -2950,9 +2950,16 @@ Session Statistics:
                 progress_callback=update_progress
             )
 
-            # Check if session not found error, auto retry
-            if response.is_error and response.error_message and "No conversation found" in response.error_message:
-                logger.warning(f"User {user_id} session expired, clearing and retrying")
+            # Check if session not found error OR silent failure (is_error with 0 turns)
+            # Silent failure happens when SDK returns is_error=True but error_message=None
+            session_failed = (
+                response.is_error and response.error_message and "No conversation found" in response.error_message
+            ) or (
+                response.is_error and response.num_turns == 0 and resume_session_id
+            )
+
+            if session_failed:
+                logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
@@ -3244,9 +3251,15 @@ Session Statistics:
                 progress_callback=update_progress
             )
 
-            # Handle session expired error
-            if response.is_error and response.error_message and "No conversation found" in response.error_message:
-                logger.warning(f"User {user_id} session expired, clearing and retrying")
+            # Handle session expired error OR silent failure (is_error with 0 turns)
+            session_failed = (
+                response.is_error and response.error_message and "No conversation found" in response.error_message
+            ) or (
+                response.is_error and response.num_turns == 0 and resume_session_id
+            )
+
+            if session_failed:
+                logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
@@ -3401,9 +3414,15 @@ Session Statistics:
                 progress_callback=update_progress
             )
 
-            # 处理 session 过期错误
-            if response.is_error and response.error_message and "No conversation found" in response.error_message:
-                logger.warning(f"User {user_id} session expired, clearing and retrying")
+            # 处理 session 过期错误 OR 静默失败 (is_error with 0 turns)
+            session_failed = (
+                response.is_error and response.error_message and "No conversation found" in response.error_message
+            ) or (
+                response.is_error and response.num_turns == 0 and resume_session_id
+            )
+
+            if session_failed:
+                logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)

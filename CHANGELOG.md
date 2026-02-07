@@ -4,6 +4,26 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-07] Fix Silent Session Resume Failure
+
+### Problem
+- User sent messages but got no response
+- Logs showed `turns=0, tokens=0, cost=$0.0000` and `error: None`
+- Session resume was failing silently without triggering retry
+
+### Root Cause
+- Session expired on server but SDK returned `is_error=True` with `error_message=None`
+- Existing check only looked for "No conversation found" in error message
+- When error_message is None, the retry logic was not triggered
+
+### Fix
+- Modified session failure detection in `bot/handlers.py`
+- Now also checks for `is_error=True AND num_turns=0 AND resume_session_id exists`
+- This catches silent failures where SDK returns error without message
+- Applied to all 3 message handlers: text, voice, and image
+
+---
+
 ## [2026-02-05] Fix Scheduled Task Missing Context
 
 ### Problem
