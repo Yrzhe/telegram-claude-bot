@@ -4,6 +4,58 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-12] Add Local Twitter Scraper API as Primary Data Source
+
+### Changes
+- Added local Twitter Scraper API (http://127.0.0.1:8000) as primary data source for 7 methods
+- TwitterAPI.io kept as automatic fallback when local API is unavailable
+- Local API uses 18 accounts, free with no credit consumption
+
+### Modified Methods (local-first with fallback)
+- `get_user_info()` - User profile lookup
+- `get_user_tweets()` - User tweet fetching
+- `advanced_search()` - Tweet search (added `limit` parameter)
+- `get_followers()` - Follower list (added `limit` parameter)
+- `get_followings()` - Following list (added `limit` parameter)
+- `get_tweet_thread()` - Tweet conversation thread
+- `batch_get_users()` - Added `screen_names` parameter for local API
+
+### Modified Files
+- `.claude/skills/twitterapi-io/scripts/twitter_api.py` - Added `_local_request()` helper and modified 7 methods
+- `.claude/skills/twitterapi-io/SKILL.md` - Updated docs with dual-source architecture
+- `claude_data/skills/twitterapi-io/scripts/twitter_api.py` - Docker copy synced
+- `claude_data/skills/twitterapi-io/SKILL.md` - Docker copy synced
+
+---
+
+## [2026-02-08] Fix Mini App "Unauthorized" Error on Token Expiry
+
+### Problem
+- Users reported Mini App showing "Unauthorized" error
+- Root cause: JWT token expired (24h expiry) but frontend didn't handle it properly
+- Frontend stored expired token in localStorage (zustand persist)
+- On reopen, frontend skipped re-authentication because token existed
+- API calls failed with 401, but frontend only cleared ApiClient token, not auth store
+
+### Solution
+- Added `onUnauthorized` callback to ApiClient for 401 error handling
+- Added `needsReauth` state and `triggerReauth` action to auth store
+- Added `isHydrated` state to wait for localStorage restoration before auth check
+- When 401 error occurs:
+  1. ApiClient clears its token and calls `onUnauthorized`
+  2. Auth store clears token and sets `needsReauth=true`
+  3. AuthWrapper detects `needsReauth`, resets `authAttempted`, triggers re-authentication
+  4. Fresh token obtained from Telegram initData
+- Improved error message: "Session expired. Please reopen the app."
+- **Performance fix**: Only authenticate when no cached token or token expired (not every open)
+
+### Modified Files
+- `webapp/src/api/client.ts` - Added onUnauthorized callback mechanism
+- `webapp/src/stores/auth.ts` - Added needsReauth, isHydrated states and triggerReauth action
+- `webapp/src/App.tsx` - Wait for hydration, handle needsReauth to trigger re-authentication
+
+---
+
 ## [2026-02-08] Install agent-browser for Headless Browser Automation
 
 ### Problem
