@@ -26,6 +26,13 @@ class ApiClient {
     }
   }
 
+  // Callback for handling 401 errors (set by auth store)
+  private onUnauthorized: (() => void) | null = null
+
+  setOnUnauthorized(callback: (() => void) | null) {
+    this.onUnauthorized = callback
+  }
+
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -38,7 +45,11 @@ class ApiClient {
     if (!response.ok) {
       if (response.status === 401) {
         this.token = null
-        throw new Error('Unauthorized')
+        // Trigger re-authentication
+        if (this.onUnauthorized) {
+          this.onUnauthorized()
+        }
+        throw new Error('Session expired. Please reopen the app.')
       }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
       throw new Error(error.detail || `API Error: ${response.status}`)

@@ -9,17 +9,28 @@ import { useAuthStore } from './stores/auth'
 
 function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { isReady, initData, isDev } = useTelegram()
-  const { token, isLoading, error, login } = useAuthStore()
+  const { token, isLoading, error, login, needsReauth, isHydrated } = useAuthStore()
   const [authAttempted, setAuthAttempted] = useState(false)
 
   useEffect(() => {
-    if (!isReady || authAttempted) return
+    // Reset authAttempted when needsReauth is triggered
+    if (needsReauth) {
+      setAuthAttempted(false)
+    }
+  }, [needsReauth])
+
+  useEffect(() => {
+    // Wait for both Telegram SDK and store hydration
+    if (!isReady || !isHydrated || authAttempted) return
 
     const authenticate = async () => {
       setAuthAttempted(true)
 
-      // If already have a token, skip auth
-      if (token) return
+      // If already have a valid token and not needing reauth, skip
+      if (token && !needsReauth) {
+        console.log('Using cached token, skipping authentication')
+        return
+      }
 
       // Dev mode bypass
       if (isDev) {
@@ -33,6 +44,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
       }
 
       try {
+        console.log('Authenticating with Telegram...')
         await login(initData)
       } catch (err) {
         console.error('Authentication failed:', err)
@@ -40,10 +52,10 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     }
 
     authenticate()
-  }, [isReady, initData, token, authAttempted, login, isDev])
+  }, [isReady, isHydrated, initData, token, authAttempted, login, isDev, needsReauth])
 
-  // Show loading state
-  if (!isReady || isLoading) {
+  // Show loading state while initializing
+  if (!isReady || !isHydrated || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--tg-theme-bg-color)]">
         <div className="text-center">

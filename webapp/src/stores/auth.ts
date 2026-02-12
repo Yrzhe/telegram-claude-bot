@@ -9,10 +9,14 @@ interface AuthState {
   user: User | null
   isLoading: boolean
   error: string | null
+  needsReauth: boolean
+  isHydrated: boolean  // Track if store has been rehydrated
 
   login: (initData: string) => Promise<void>
   logout: () => void
   setError: (error: string | null) => void
+  triggerReauth: () => void
+  setHydrated: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -22,9 +26,11 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isLoading: false,
       error: null,
+      needsReauth: false,
+      isHydrated: false,
 
       login: async (initData: string) => {
-        set({ isLoading: true, error: null })
+        set({ isLoading: true, error: null, needsReauth: false })
         try {
           const response = await api.authenticate(initData)
           api.setToken(response.token)
@@ -46,10 +52,19 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         api.setToken(null)
         wsClient.disconnect()
-        set({ token: null, user: null, error: null })
+        set({ token: null, user: null, error: null, needsReauth: false })
       },
 
       setError: (error: string | null) => set({ error }),
+
+      triggerReauth: () => {
+        // Clear token and trigger re-authentication
+        api.setToken(null)
+        wsClient.disconnect()
+        set({ token: null, user: null, needsReauth: true, error: null })
+      },
+
+      setHydrated: () => set({ isHydrated: true }),
     }),
     {
       name: 'telegram-miniapp-auth',
@@ -60,7 +75,18 @@ export const useAuthStore = create<AuthState>()(
           api.setToken(state.token)
           wsClient.connect(state.token)
         }
+        // Mark as hydrated
+        useAuthStore.getState().setHydrated()
+        // Set up 401 handler
+        api.setOnUnauthorized(() => {
+          useAuthStore.getState().triggerReauth()
+        })
       },
     }
   )
 )
+
+// Set up 401 handler on initial load
+api.setOnUnauthorized(() => {
+  useAuthStore.getState().triggerReauth()
+})
