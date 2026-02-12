@@ -4,6 +4,28 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-13] Fix and enhance local Twitter Scraper API integration
+
+### Bug Fixes
+- Fixed `batch_get_users()` sending wrong request format to local API (was `{"screen_names": [...]}`, now correctly sends plain array `[...]`)
+- Fixed `get_tweet_thread()` not properly extracting `focal_tweet` from local API response
+
+### New Methods
+- `get_tweet_detail(tweet_id)` - Get single tweet detail via local API with TwitterAPI.io fallback
+- `batch_search(queries, limit)` - Batch search multiple keywords concurrently via local API
+- `local_api_health()` - Check local Twitter Scraper API health status
+- `local_api_stats()` - Get local API account pool statistics
+
+### Improvements
+- `_local_request()` now supports query params on POST requests (needed for batch search `?limit=`)
+- Updated SKILL.md to v1.3.0 with new method documentation
+
+### Modified Files
+- `.claude/skills/twitterapi-io/scripts/twitter_api.py` - Bug fixes + 4 new methods
+- `.claude/skills/twitterapi-io/SKILL.md` - Updated docs to v1.3.0
+
+---
+
 ## [2026-02-12] Fix: Inject chat history context when session expires
 
 ### Changes
