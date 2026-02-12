@@ -122,6 +122,18 @@ class SessionManager:
 
         return session
 
+    def pop_expired_session_id(self, user_id: int) -> Optional[str]:
+        """If user has an expired session, return its session_id and clear it.
+        Returns None if no session or session is still valid."""
+        session = self._sessions.get(user_id)
+        if session is None:
+            return None
+        if session.is_expired(self.session_timeout):
+            expired_id = session.session_id
+            self.clear_session(user_id)
+            return expired_id if expired_id else None
+        return None
+
     def get_session_id(self, user_id: int) -> Optional[str]:
         """获取用户的会话 ID（用于 resume）"""
         session = self.get_session(user_id)

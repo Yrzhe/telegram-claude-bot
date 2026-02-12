@@ -4,6 +4,19 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-12] Fix: Inject chat history context when session expires
+
+### Changes
+- Added `pop_expired_session_id()` to SessionManager - atomically retrieves and clears expired session ID before `get_session_id()` can silently discard it
+- All 4 message handlers (text, voice, image, document) now inject up to 8000 chars of previous chat history when a session expires due to timeout
+- Fixed document handler retry inconsistency: now injects context on session failure retry and detects silent failures (matching text/voice/image handlers)
+
+### Modified Files
+- `bot/session/manager.py` - New `pop_expired_session_id()` method
+- `bot/handlers.py` - Expired session context recovery in `_process_user_message()`, `handle_voice_message()`, `handle_photo_message()`, `handle_document()`; document handler retry fix
+
+---
+
 ## [2026-02-12] Add Local Twitter Scraper API as Primary Data Source
 
 ### Changes

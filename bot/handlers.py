@@ -3005,7 +3005,10 @@ Session Statistics:
             # Get Agent client for user (with fresh topic context)
             agent = get_agent_for_user(user_id, context.bot)
 
-            # Get session ID (if exists)
+            # Check for expired session BEFORE get_session_id clears it
+            expired_session_id = session_manager.pop_expired_session_id(user_id)
+
+            # Get session ID (if still valid)
             resume_session_id = session_manager.get_session_id(user_id)
 
             # Check if we need to include chat history context proactively
@@ -3013,6 +3016,17 @@ Session Statistics:
             # even though our session ID is still valid
             message_to_send = user_message
             session_info = session_manager.get_session_info(user_id)
+
+            # If session just expired, inject previous chat history as context
+            if expired_session_id and not resume_session_id:
+                try:
+                    expired_history = chat_logger.get_current_session_log(user_id, expired_session_id)
+                    if expired_history and len(expired_history) > 100:
+                        history_text = expired_history[-8000:] if len(expired_history) > 8000 else expired_history
+                        message_to_send = f"[Previous conversation context - session expired after timeout, starting fresh session]\n{history_text}\n\n[Current message from user]\n{message_to_send}"
+                        logger.info(f"User {user_id} session expired, injected {len(history_text)} chars of context from session {expired_session_id[:8]}")
+                except Exception as e:
+                    logger.error(f"Failed to recover expired session context: {e}")
 
             # === CONSTRAINT EXTRACTION: Extract user corrections from recent chat ===
             # This ensures Agent doesn't ignore user corrections
@@ -3361,11 +3375,26 @@ Session Statistics:
 
             # Get Agent and process
             agent = get_agent_for_user(user_id, context.bot)
+
+            # Check for expired session BEFORE get_session_id clears it
+            expired_session_id = session_manager.pop_expired_session_id(user_id)
+
             resume_session_id = session_manager.get_session_id(user_id)
 
             # Check if we need to include chat history context proactively
             message_to_send = user_message
             session_info = session_manager.get_session_info(user_id)
+
+            # If session just expired, inject previous chat history as context
+            if expired_session_id and not resume_session_id:
+                try:
+                    expired_history = chat_logger.get_current_session_log(user_id, expired_session_id)
+                    if expired_history and len(expired_history) > 100:
+                        history_text = expired_history[-8000:] if len(expired_history) > 8000 else expired_history
+                        message_to_send = f"[Previous conversation context - session expired after timeout, starting fresh session]\n{history_text}\n\n[Current message from user]\n{message_to_send}"
+                        logger.info(f"User {user_id} session expired, injected {len(history_text)} chars of context from session {expired_session_id[:8]} (voice)")
+                except Exception as e:
+                    logger.error(f"Failed to recover expired session context: {e}")
 
             if resume_session_id and session_info:
                 elapsed_seconds = session_info.get('elapsed_seconds', 0)
@@ -3559,11 +3588,26 @@ Session Statistics:
 
             # 获取 Agent 并处理
             agent = get_agent_for_user(user_id, context.bot)
+
+            # Check for expired session BEFORE get_session_id clears it
+            expired_session_id = session_manager.pop_expired_session_id(user_id)
+
             resume_session_id = session_manager.get_session_id(user_id)
 
             # Check if we need to include chat history context proactively
             message_to_send = user_message
             session_info = session_manager.get_session_info(user_id)
+
+            # If session just expired, inject previous chat history as context
+            if expired_session_id and not resume_session_id:
+                try:
+                    expired_history = chat_logger.get_current_session_log(user_id, expired_session_id)
+                    if expired_history and len(expired_history) > 100:
+                        history_text = expired_history[-8000:] if len(expired_history) > 8000 else expired_history
+                        message_to_send = f"[Previous conversation context - session expired after timeout, starting fresh session]\n{history_text}\n\n[Current message from user]\n{message_to_send}"
+                        logger.info(f"User {user_id} session expired, injected {len(history_text)} chars of context from session {expired_session_id[:8]} (image)")
+                except Exception as e:
+                    logger.error(f"Failed to recover expired session context: {e}")
 
             if resume_session_id and session_info:
                 elapsed_seconds = session_info.get('elapsed_seconds', 0)
@@ -3792,11 +3836,26 @@ Session Statistics:
 
             # Get Agent and process
             agent = get_agent_for_user(user_id, context.bot)
+
+            # Check for expired session BEFORE get_session_id clears it
+            expired_session_id = session_manager.pop_expired_session_id(user_id)
+
             resume_session_id = session_manager.get_session_id(user_id)
 
             # Check if we need to include chat history context proactively
             message_to_send = user_message
             session_info = session_manager.get_session_info(user_id)
+
+            # If session just expired, inject previous chat history as context
+            if expired_session_id and not resume_session_id:
+                try:
+                    expired_history = chat_logger.get_current_session_log(user_id, expired_session_id)
+                    if expired_history and len(expired_history) > 100:
+                        history_text = expired_history[-8000:] if len(expired_history) > 8000 else expired_history
+                        message_to_send = f"[Previous conversation context - session expired after timeout, starting fresh session]\n{history_text}\n\n[Current message from user]\n{message_to_send}"
+                        logger.info(f"User {user_id} session expired, injected {len(history_text)} chars of context from session {expired_session_id[:8]} (document)")
+                except Exception as e:
+                    logger.error(f"Failed to recover expired session context: {e}")
 
             if resume_session_id and session_info:
                 elapsed_seconds = session_info.get('elapsed_seconds', 0)
@@ -3818,15 +3877,38 @@ Session Statistics:
                 progress_callback=update_progress
             )
 
-            # Check if session not found error, auto retry
-            if response.is_error and response.error_message and "No conversation found" in response.error_message:
-                logger.warning(f"User {user_id} session expired, clearing and retrying")
+            # Check if session not found error OR silent failure, auto retry
+            session_failed = (
+                response.is_error and response.error_message and "No conversation found" in response.error_message
+            ) or (
+                response.is_error and response.num_turns == 0 and resume_session_id
+            )
+
+            if session_failed:
+                logger.warning(f"User {user_id} session expired or failed silently, clearing and retrying")
+
+                # Get chat history BEFORE archiving (so we can use it as context)
+                chat_history = chat_logger.get_current_session_log(user_id, resume_session_id)
+
                 # Auto-archive before clearing session
                 await _auto_archive_on_session_expired(user_id, resume_session_id)
                 session_manager.end_session(user_id)
                 agent = get_agent_for_user(user_id, context.bot)
+
+                # Build message with context from previous conversation
+                if chat_history and len(chat_history) > 100:
+                    context_text = chat_history[-8000:] if len(chat_history) > 8000 else chat_history
+                    context_message = f"""[Previous conversation context - session expired, continuing from here]
+{context_text}
+
+[Current message from user]
+{user_message}"""
+                    logger.info(f"User {user_id} retrying with {len(context_text)} chars of context")
+                else:
+                    context_message = user_message
+
                 response = await agent.process_message(
-                    user_message,
+                    context_message,
                     None,
                     progress_callback=update_progress
                 )
