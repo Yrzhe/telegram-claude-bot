@@ -4,6 +4,28 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-13] Fix voice message context loss causing AI to repeat and confuse topics
+
+### Problem
+- AI kept re-explaining tweets instead of following voice message instructions (repeated 5+ times)
+- AI confused context between two different tweets in the same session
+- Voice messages were sent as raw transcript without conversation context, while text messages had constraint extraction
+
+### Root Cause
+1. Voice handler was missing constraint extraction (text handler had it since constraint_extractor.py)
+2. For short-gap voice messages (<10 min), the raw voice transcript was sent without any conversation context hint
+3. The AI lost track of the conversation flow when receiving terse voice transcripts without explicit references
+
+### Fix
+- Added constraint extraction to voice handler (same as text handler) - detects user corrections like "我说的是..." and prepends them
+- Added lightweight context hint injection for ALL voice messages when resuming a session - injects last 2000 chars of recent conversation as context
+- This ensures the AI always knows what was just discussed, even with short voice messages
+
+### Modified Files
+- `bot/handlers.py` - Voice message handler: added constraint extraction + context hint injection
+
+---
+
 ## [2026-02-13] Fix and enhance local Twitter Scraper API integration
 
 ### Bug Fixes

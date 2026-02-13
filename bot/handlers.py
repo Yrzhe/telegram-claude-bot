@@ -3396,6 +3396,18 @@ Session Statistics:
                 except Exception as e:
                     logger.error(f"Failed to recover expired session context: {e}")
 
+            # === CONSTRAINT EXTRACTION for voice: same as text handler ===
+            if resume_session_id:
+                try:
+                    from .constraint_extractor import get_constraints_prefix
+                    recent_chat = chat_logger.get_current_session_log(user_id, resume_session_id)
+                    constraints_prefix = get_constraints_prefix(recent_chat, max_messages=10)
+                    if constraints_prefix:
+                        message_to_send = constraints_prefix + "\n" + message_to_send
+                        logger.info(f"User {user_id}: Injected constraints into voice message")
+                except Exception as e:
+                    logger.error(f"Failed to extract constraints for voice: {e}")
+
             if resume_session_id and session_info:
                 elapsed_seconds = session_info.get('elapsed_seconds', 0)
                 CONTEXT_THRESHOLD_SECONDS = 600  # 10 minutes
@@ -3409,6 +3421,22 @@ Session Statistics:
 [Current message from user - voice]
 {user_message}"""
                         logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap (voice)")
+                else:
+                    # Even for short gaps, inject last exchange as context hint for voice
+                    # Voice messages lack explicit references, so the AI needs a reminder
+                    try:
+                        recent_chat = chat_logger.get_current_session_log(user_id, resume_session_id)
+                        if recent_chat and len(recent_chat) > 200:
+                            # Get just the last exchange (last 2000 chars) as a lightweight hint
+                            last_exchange = recent_chat[-2000:]
+                            message_to_send = f"""[Voice message from user - recent conversation context for reference]
+{last_exchange}
+
+[Current voice message from user]
+{user_message}"""
+                            logger.info(f"User {user_id} injected {len(last_exchange)} chars context hint for voice message")
+                    except Exception as e:
+                        logger.error(f"Failed to inject voice context hint: {e}")
 
             if resume_session_id:
                 logger.info(f"User {user_id} resuming session with voice: {resume_session_id[:8]}...")
