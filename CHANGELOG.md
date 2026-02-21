@@ -4,6 +4,22 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-21] Add max_turns limit to prevent runaway agent sessions
+
+### Problem
+- Agent had no turn limit, could run 80+ steps on difficult tasks (e.g., fetching Twitter long-form content)
+- This wasted API tokens and made users wait indefinitely
+
+### Solution
+- Added `max_turns` parameter to `TelegramAgentClient` and `ClaudeAgentOptions`
+- Default limits: **30 turns** for main agent, **15 turns** for sub agents
+- `create_sub_agent` factory also accepts optional `max_turns` override
+
+### Modified Files
+- `bot/agent/client.py` - Added `max_turns` parameter and wired it into `ClaudeAgentOptions`
+
+---
+
 ## [2026-02-13] Fix voice message context loss causing AI to repeat and confuse topics
 
 ### Problem

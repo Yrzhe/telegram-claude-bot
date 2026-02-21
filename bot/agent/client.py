@@ -70,7 +70,8 @@ class TelegramAgentClient:
         custom_command_manager: Any | None = None,
         admin_user_ids: list[int] | None = None,
         context_summary: str | None = None,
-        topic_context: str | None = None
+        topic_context: str | None = None,
+        max_turns: int | None = None
     ):
         """
         Initialize Agent client.
@@ -97,6 +98,7 @@ class TelegramAgentClient:
             admin_user_ids: List of admin user IDs for permission checks
             context_summary: Previous conversation summary (from /compact)
             topic_context: Topic context string from TopicManager
+            max_turns: Maximum number of agent turns (None for default: 30 main, 15 sub)
         """
         self.user_id = user_id
         self.working_directory = Path(working_directory).resolve()
@@ -117,6 +119,13 @@ class TelegramAgentClient:
         self.admin_user_ids = admin_user_ids or []
         self.context_summary = context_summary or ""
         self.topic_context = topic_context or ""
+
+        # Max turns limit to prevent runaway sessions
+        # Default: 30 for main agent, 15 for sub agent
+        if max_turns is not None:
+            self.max_turns = max_turns
+        else:
+            self.max_turns = 15 if is_sub_agent else 30
 
         # Initialize file tracker for tracking new files during task execution
         self.file_tracker = FileTracker(self.working_directory)
@@ -351,6 +360,7 @@ class TelegramAgentClient:
             hooks=hooks,
             model=self.model,
             setting_sources=["user", "project"],
+            max_turns=self.max_turns,
         )
 
         # Set resume if session ID provided
@@ -543,12 +553,14 @@ def create_sub_agent(
     env_vars: Dict[str, str] | None = None,
     model: str | None = None,
     mistral_api_key: str | None = None,
-    send_file_callback: Callable[[str, str | None], Awaitable[bool]] | None = None
+    send_file_callback: Callable[[str, str | None], Awaitable[bool]] | None = None,
+    max_turns: int | None = None
 ) -> TelegramAgentClient:
     """
     Factory function to create a Sub Agent.
 
     Sub Agents cannot send messages to users directly, but CAN send files.
+    Default max_turns: 15 (inherited from TelegramAgentClient).
     """
     async def noop_send(_): pass
     async def noop_file(_, __): return True
@@ -561,5 +573,6 @@ def create_sub_agent(
         env_vars=env_vars,
         model=model,
         mistral_api_key=mistral_api_key,
-        is_sub_agent=True
+        is_sub_agent=True,
+        max_turns=max_turns
     )
