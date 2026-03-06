@@ -77,8 +77,12 @@ export const useAuthStore = create<AuthState>()(
         }
         // Mark as hydrated
         useAuthStore.getState().setHydrated()
-        // Set up 401 handler
+        // Set up 401 handler (HTTP API)
         api.setOnUnauthorized(() => {
+          useAuthStore.getState().triggerReauth()
+        })
+        // Set up WebSocket auth failure handler
+        wsClient.setOnAuthFailure(() => {
           useAuthStore.getState().triggerReauth()
         })
       },
@@ -88,5 +92,10 @@ export const useAuthStore = create<AuthState>()(
 
 // Set up 401 handler on initial load
 api.setOnUnauthorized(() => {
+  useAuthStore.getState().triggerReauth()
+})
+
+// Set up WebSocket auth failure handler on initial load
+wsClient.setOnAuthFailure(() => {
   useAuthStore.getState().triggerReauth()
 })

@@ -4,6 +4,21 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-06] Fix skill scripts path resolution for user-installed skills
+
+### Problem
+- SKILL.md files reference paths like `~/.claude/skills/<name>/scripts/`
+- But user skills are stored at `/app/users/<id>/skills/<name>/`
+- Agent could not find script files because `~` expands to `/root/`, not the user data dir
+
+### Solution
+- `SkillManager.get_skills_for_agent()` now replaces `~/.claude/skills/<name>/` with the actual skill path when injecting content into the system prompt
+
+### Modified Files
+- `bot/skill/manager.py` - Added path placeholder replacement in `get_skills_for_agent()`
+
+---
+
 ## [2026-02-26] Fix skill validator rejecting normal Markdown inline code
 
 ### Problem

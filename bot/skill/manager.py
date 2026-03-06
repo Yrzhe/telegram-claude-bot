@@ -207,6 +207,11 @@ class SkillManager:
             import re
             content = re.sub(r'^---\s*\n.*?\n---\s*\n', '', content, flags=re.DOTALL)
 
+            # Replace common skill path placeholders with actual path
+            actual_path = str(skill.path)
+            content = content.replace(f"~/.claude/skills/{skill.name}/", f"{actual_path}/")
+            content = content.replace(f"~/.claude/skills/{skill.name}", actual_path)
+
             if len(content) > 2000:
                 content = content[:2000] + "\n...(truncated)"
 

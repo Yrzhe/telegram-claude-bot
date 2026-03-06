@@ -7,6 +7,12 @@ class WebSocketClient {
   private maxReconnectAttempts = 5
   private token: string | null = null
   private pingInterval: ReturnType<typeof setInterval> | null = null
+  private wasConnected = false
+  private onAuthFailure: (() => void) | null = null
+
+  setOnAuthFailure(callback: () => void) {
+    this.onAuthFailure = callback
+  }
 
   connect(token: string) {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -14,6 +20,7 @@ class WebSocketClient {
     }
 
     this.token = token
+    this.wasConnected = false
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws?token=${token}`
 
@@ -21,6 +28,7 @@ class WebSocketClient {
 
     this.ws.onopen = () => {
       console.log('WebSocket connected')
+      this.wasConnected = true
       this.reconnectAttempts = 0
       this.startPing()
     }
@@ -48,6 +56,14 @@ class WebSocketClient {
     this.ws.onclose = () => {
       console.log('WebSocket disconnected')
       this.stopPing()
+
+      // If connection was never established, likely an auth failure (403)
+      if (!this.wasConnected) {
+        console.log('WebSocket failed before opening - triggering reauth')
+        this.onAuthFailure?.()
+        return
+      }
+
       this.attemptReconnect()
     }
 
