@@ -43,7 +43,7 @@ class SkillValidator:
         (r'\bos\.system', "os.system call detected"),
         (r'\bsubprocess', "subprocess module detected"),
         (r'\beval\s*\(', "eval() function detected"),
-        (r'`[^`]+`', "Backtick command execution detected"),
+        (r'`\s*(?:rm|sudo|chmod|chown|curl\s.*\|\s*(?:sh|bash)|wget\s.*\|\s*(?:sh|bash)|apt|yum|pip\s+install|npm\s+install)\b[^`]*`', "Backtick shell command detected"),
         (r'\$\([^)]+\)', "Shell command substitution detected"),
         # File system attacks
         (r'rm\s+-rf', "Dangerous rm -rf command detected"),
@@ -243,7 +243,7 @@ class SkillValidator:
                     "Remove phrases that try to override instructions. "
                     "Skills should provide helpful guidance, not manipulate the AI."
                 )
-            elif "Bash" in error or "exec" in error or "system" in error:
+            elif "Bash" in error or "exec" in error or "system" in error or "Backtick" in error:
                 suggestions.append(
                     "Remove code execution commands. Skills should guide the Agent, "
                     "not execute arbitrary code."

@@ -4,6 +4,22 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-02-26] Fix skill validator rejecting normal Markdown inline code
+
+### Problem
+- Skill validation regex `` `[^`]+` `` matched ALL backtick-wrapped text
+- Normal Markdown inline code (file names, variable names, API endpoints) triggered false positives
+- Made it impossible to install any skill containing inline code formatting
+
+### Solution
+- Narrowed backtick detection to only match actual dangerous shell commands (rm, sudo, curl|sh, etc.)
+- Normal Markdown inline code like `` `SKILL.md` `` or `` `max_turns` `` now passes validation
+
+### Modified Files
+- `bot/skill/validator.py` - Fixed DANGEROUS_CODE_PATTERNS backtick regex and suggestion matching
+
+---
+
 ## [2026-02-21] Add max_turns limit to prevent runaway agent sessions
 
 ### Problem
