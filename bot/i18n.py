@@ -263,6 +263,7 @@ Please help the user process this file. If it's a document (PDF, Word, TXT, etc.
     TOOL_SKILL: str = "Executing skill"
     TOOL_SEND_MESSAGE: str = "Sending message"
     TOOL_SEND_FILE: str = "Sending file"
+    TOOL_SEND_BUTTONS: str = "Sending options"
     TOOL_WEB_SEARCH: str = "Searching web"
     TOOL_WEB_FETCH: str = "Fetching webpage"
     TOOL_PDF_TO_MD: str = "PDF to Markdown"
@@ -535,6 +536,7 @@ TOOL_NAMES: Dict[str, str] = {
     "Skill": "TOOL_SKILL",
     "mcp__telegram__send_telegram_message": "TOOL_SEND_MESSAGE",
     "mcp__telegram__send_telegram_file": "TOOL_SEND_FILE",
+    "mcp__telegram__send_message_with_buttons": "TOOL_SEND_BUTTONS",
     "mcp__telegram__web_search": "TOOL_WEB_SEARCH",
     "mcp__telegram__web_fetch": "TOOL_WEB_FETCH",
     "mcp__telegram__pdf_to_markdown": "TOOL_PDF_TO_MD",

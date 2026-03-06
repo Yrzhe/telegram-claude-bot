@@ -173,7 +173,7 @@ def _extract_paths(command: str) -> list[str]:
 
 
 def _is_path_within_working_dir(path: str, working_dir: Path) -> bool:
-    """Check if a path is within the working directory."""
+    """Check if a path is within the working directory or sibling skills directory."""
     try:
         # Expand ~ to home directory
         if path.startswith('~'):
@@ -185,10 +185,23 @@ def _is_path_within_working_dir(path: str, working_dir: Path) -> bool:
         else:
             full_path = Path(path).resolve()
 
+        resolved_wd = working_dir.resolve()
+
         # Check if within working directory
-        full_path.relative_to(working_dir.resolve())
-        return True
-    except (ValueError, OSError):
+        try:
+            full_path.relative_to(resolved_wd)
+            return True
+        except ValueError:
+            pass
+
+        # Also allow access to sibling skills/ directory
+        try:
+            skills_dir = resolved_wd.parent / "skills"
+            full_path.relative_to(skills_dir)
+            return True
+        except ValueError:
+            return False
+    except OSError:
         return False
 
 

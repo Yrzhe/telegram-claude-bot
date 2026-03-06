@@ -4,6 +4,48 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-07] Fix: Allow scheduled tasks to access skills directory
+
+### Bug Fixes
+- Scheduled tasks (sub-agents) could not read skill files because the skills directory (`/users/<id>/skills/`) is a sibling of the working directory (`/users/<id>/data/`), and the path security check blocked access
+- Extended `_is_path_safe` in `bot/agent/client.py` and `_is_path_within_working_dir` in `bot/bash_safety.py` to also allow access to the sibling `skills/` directory
+
+### Modified Files
+- `bot/agent/client.py` - `_is_path_safe()` now permits the sibling `skills/` directory
+- `bot/bash_safety.py` - `_is_path_within_working_dir()` now permits the sibling `skills/` directory
+
+## [2026-03-06] Feature: Streaming Text Output via sendMessageDraft
+
+### New Features
+- Text responses now appear progressively in chat as the Agent generates them, using Telegram's `sendMessageDraft` API
+- Users see real-time text streaming instead of waiting for the entire response to complete
+- Streaming is throttled (0.4s interval, 5-char minimum delta) to balance responsiveness and API rate limits
+- Draft disappears automatically when the final message is sent
+- Non-fatal: if `sendMessageDraft` fails, the bot falls back to normal behavior seamlessly
+- Streaming works for all message types: text, voice, image, and document handlers
+
+### Modified Files
+- `bot/streaming.py` - **NEW** DraftStreamer class for throttled `sendMessageDraft` calls
+- `bot/agent/client.py` - Import `StreamEvent`, add `stream_callback` parameter, enable `include_partial_messages`, handle `StreamEvent` text deltas in message loop
+- `bot/handlers.py` - Create `DraftStreamer` and wire `streamer.append` as `stream_callback` for all message processing paths
+
+## [2026-03-06] Feature: Inline Keyboard Buttons for Agent Messages
+
+### New Features
+- Added `send_message_with_buttons` MCP tool for the Agent to send messages with inline keyboard buttons
+- When the Agent asks a question with choices, it can now present clickable buttons instead of plain text
+- Button clicks are treated as user replies - tapping a button sends the choice back to the Agent
+- Original message is updated to show which button was selected (buttons removed after selection)
+- Flexible button format: supports simple strings, `{label, data}` dicts, and nested rows
+- Fallback for sub-agents: buttons degrade to numbered text list when callback not available
+
+### Modified Files
+- `bot/agent/tools.py` - New `send_message_with_buttons` tool definition
+- `bot/agent/client.py` - Pass `send_buttons_callback`, add to allowed tools and tracking
+- `bot/message_queue.py` - New `BUTTONS` message type, `send_buttons` queue method, `_raw_send_buttons` sender
+- `bot/handlers.py` - `CallbackQueryHandler` to process button clicks as user messages
+- `bot/i18n.py` - Added `TOOL_SEND_BUTTONS` display name
+
 ## [2026-03-06] Feature: Add Cleanup Agent to Mini App
 
 ### New Features

@@ -117,6 +117,33 @@ This file stores the user's requirements: tone/style, things to remember, specif
 - Numbered lists (1. 2. 3.) and bullet points (- or •) work normally
 - Keep messages concise and clear, use line breaks to separate content
 
+### Copyable Content Rule (IMPORTANT)
+
+When your response contains content the user is likely to copy — such as tweets, social media posts, email drafts, titles, slogans, code snippets, commands, URLs, filenames, or any standalone text the user asked you to generate — **wrap it in backtick code blocks** so they can tap to copy in Telegram.
+
+**Examples of copyable content:**
+- Tweet drafts / social media posts → wrap in ` ``` `
+- Email subject lines or body text → wrap in ` ``` `
+- Suggested names, titles, slogans → wrap in `` ` `` (inline code)
+- Shell commands or code → wrap in ` ``` `
+- Any text the user explicitly asked you to "write" or "draft"
+
+**When NOT to use code blocks:**
+- Your own explanations, analysis, or commentary
+- Conversational responses
+- Lists of options (unless each option is meant to be copied)
+
+**Example — User asks for tweet drafts:**
+```
+Here are 3 tweet options:
+```
+
+Then each tweet wrapped individually:
+
+` ```tweet content here``` `
+
+This way the user can tap any individual tweet to copy it directly.
+
 ---
 
 ## Message Rules (Avoid Repetition)

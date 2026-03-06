@@ -14,16 +14,19 @@ logger = logging.getLogger(__name__)
 class MessageType(Enum):
     TEXT = "text"
     FILE = "file"
+    BUTTONS = "buttons"
 
 
 @dataclass
 class QueuedMessage:
     """A message waiting to be sent."""
     msg_type: MessageType
-    # For TEXT: text content; For FILE: file path
+    # For TEXT: text content; For FILE: file path; For BUTTONS: text content
     content: str
     # For FILE: optional caption
     caption: Optional[str] = None
+    # For BUTTONS: list of button rows, each row is a list of (label, callback_data) tuples
+    buttons: Optional[list] = None
 
 
 class UserMessageQueue:
@@ -39,11 +42,13 @@ class UserMessageQueue:
         self,
         user_id: int,
         raw_send_message: Callable[[int, str], Awaitable[None]],
-        raw_send_file: Callable[[int, str, Optional[str]], Awaitable[bool]]
+        raw_send_file: Callable[[int, str, Optional[str]], Awaitable[bool]],
+        raw_send_buttons: Callable[[int, str, list], Awaitable[None]] = None
     ):
         self.user_id = user_id
         self._raw_send_message = raw_send_message
         self._raw_send_file = raw_send_file
+        self._raw_send_buttons = raw_send_buttons
         self._queue: asyncio.Queue[QueuedMessage] = asyncio.Queue()
         self._processing = False
         self._lock = asyncio.Lock()
@@ -60,6 +65,13 @@ class UserMessageQueue:
         await self._queue.put(msg)
         await self._ensure_processing()
         return True  # Queued successfully; actual send result not returned immediately
+
+    async def send_buttons(self, text: str, buttons: list) -> None:
+        """Queue a message with inline keyboard buttons."""
+        logger.info(f"Queueing buttons message for user {self.user_id}: text={text[:50]!r}, buttons_count={len(buttons)}")
+        msg = QueuedMessage(msg_type=MessageType.BUTTONS, content=text, buttons=buttons)
+        await self._queue.put(msg)
+        await self._ensure_processing()
 
     async def _ensure_processing(self) -> None:
         """Start processing the queue if not already running."""
@@ -86,6 +98,8 @@ class UserMessageQueue:
                         await self._send_text(msg.content)
                     elif msg.msg_type == MessageType.FILE:
                         await self._raw_send_file(self.user_id, msg.content, msg.caption)
+                    elif msg.msg_type == MessageType.BUTTONS:
+                        await self._raw_send_buttons(self.user_id, msg.content, msg.buttons)
                 except Exception as e:
                     logger.error(f"Failed to send message to user {self.user_id}: {e}")
                 finally:
@@ -167,6 +181,38 @@ class MessageQueueManager:
             logger.error(f"Failed to send file to user {user_id}: {file_path}, error: {e}")
             return False
 
+    async def _raw_send_buttons(self, user_id: int, text: str, buttons: list) -> None:
+        """Raw message send with inline keyboard buttons."""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        logger.info(f"_raw_send_buttons called for user {user_id}: text={text[:50]!r}, buttons={buttons!r}")
+
+        keyboard = []
+        for row in buttons:
+            keyboard_row = []
+            for btn in row:
+                label = btn["label"]
+                data = btn.get("data", label)
+                keyboard_row.append(InlineKeyboardButton(text=label, callback_data=data))
+            keyboard.append(keyboard_row)
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        formatted_text = convert_to_markdown_v2(text)
+        try:
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=formatted_text,
+                parse_mode="MarkdownV2",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.debug(f"MarkdownV2 parse failed for buttons msg to user {user_id}, falling back: {e}")
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                reply_markup=reply_markup
+            )
+
     async def get_queue(self, user_id: int) -> UserMessageQueue:
         """Get or create a message queue for a user."""
         async with self._lock:
@@ -174,23 +220,25 @@ class MessageQueueManager:
                 self._queues[user_id] = UserMessageQueue(
                     user_id=user_id,
                     raw_send_message=self._raw_send_message,
-                    raw_send_file=self._raw_send_file
+                    raw_send_file=self._raw_send_file,
+                    raw_send_buttons=self._raw_send_buttons
                 )
             return self._queues[user_id]
 
     def get_callbacks(self, user_id: int, user_data_path: Any = None) -> tuple[
         Callable[[str], Awaitable[None]],
-        Callable[[str, Optional[str]], Awaitable[bool]]
+        Callable[[str, Optional[str]], Awaitable[bool]],
+        Callable[[str, list], Awaitable[None]]
     ]:
         """
-        Get queue-wrapped send_message and send_file callbacks for a user.
+        Get queue-wrapped send_message, send_file, and send_buttons callbacks for a user.
 
         Args:
             user_id: Telegram user ID
             user_data_path: Path to user's data directory (for file resolution)
 
         Returns:
-            (send_message, send_file) callback tuple
+            (send_message, send_file, send_buttons) callback tuple
         """
         from pathlib import Path
 
@@ -241,7 +289,11 @@ class MessageQueueManager:
             await queue.send_file(full_path, caption)
             return True
 
-        return send_message, send_file
+        async def send_buttons(text: str, buttons: list) -> None:
+            queue = await self.get_queue(user_id)
+            await queue.send_buttons(text, buttons)
+
+        return send_message, send_file, send_buttons
 
     async def flush_user(self, user_id: int) -> None:
         """Wait for all messages in a user's queue to be sent."""

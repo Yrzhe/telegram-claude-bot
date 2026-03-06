@@ -192,7 +192,8 @@ def is_path_within_working_dir(path: Path) -> bool:
 
 def create_telegram_tools(
     send_message_callback: Callable[[str], Awaitable[None]],
-    send_file_callback: Callable[[str, str | None], Awaitable[bool]]
+    send_file_callback: Callable[[str, str | None], Awaitable[bool]],
+    send_buttons_callback: Callable[[str, list], Awaitable[None]] | None = None
 ) -> list:
     """
     Create Telegram-related custom tools
@@ -200,6 +201,7 @@ def create_telegram_tools(
     Args:
         send_message_callback: Callback function to send messages
         send_file_callback: Callback function to send files
+        send_buttons_callback: Callback function to send messages with inline buttons
 
     Returns:
         List of tools for create_sdk_mcp_server
@@ -261,6 +263,93 @@ def create_telegram_tools(
         except Exception as e:
             return {
                 "content": [{"type": "text", "text": t("ERR_SEND_FILE_FAILED", error=str(e))}],
+                "is_error": True
+            }
+
+    @tool(
+        "send_message_with_buttons",
+        "Send a message with inline keyboard buttons. Use when asking the user to choose between options. Each button row is a list of buttons. When the user taps a button, their choice is sent back as a text message. Max 8 buttons total, max 64 bytes per callback_data.",
+        {"message": str, "buttons": list}
+    )
+    async def send_message_with_buttons(args: dict[str, Any]) -> dict[str, Any]:
+        """Send message with inline keyboard buttons"""
+        import json as _json
+        message = args.get("message", "")
+        buttons = args.get("buttons", [])
+        # Agent SDK may pass buttons as JSON string - parse it
+        if isinstance(buttons, str):
+            try:
+                buttons = _json.loads(buttons)
+            except (ValueError, TypeError):
+                pass
+        logger.info(f"send_message_with_buttons called: message={message[:50]!r}, buttons_type={type(buttons).__name__}, buttons={buttons!r}, callback={send_buttons_callback is not None}")
+
+        if not message:
+            return {
+                "content": [{"type": "text", "text": t("ERR_EMPTY_MESSAGE")}],
+                "is_error": True
+            }
+
+        if not buttons or not isinstance(buttons, list):
+            return {
+                "content": [{"type": "text", "text": "Error: buttons must be a non-empty list of button rows"}],
+                "is_error": True
+            }
+
+        if not send_buttons_callback:
+            # Fallback: send as plain text with numbered options
+            options_text = message + "\n\n"
+            idx = 1
+            for row in buttons:
+                if isinstance(row, list):
+                    for btn in row:
+                        label = btn.get("label", btn) if isinstance(btn, dict) else str(btn)
+                        options_text += f"{idx}. {label}\n"
+                        idx += 1
+                elif isinstance(row, dict):
+                    label = row.get("label", str(row))
+                    options_text += f"{idx}. {label}\n"
+                    idx += 1
+            await send_message_callback(options_text)
+            return {
+                "content": [{"type": "text", "text": t("MESSAGE_SENT", preview=message[:50])}]
+            }
+
+        # Normalize buttons format: accept both simple strings and dicts
+        normalized_buttons = []
+        for row in buttons:
+            if isinstance(row, list):
+                normalized_row = []
+                for btn in row:
+                    if isinstance(btn, str):
+                        normalized_row.append({"label": btn, "data": btn})
+                    elif isinstance(btn, dict):
+                        label = btn.get("label", btn.get("text", ""))
+                        data = btn.get("data", btn.get("callback_data", label))
+                        # Telegram callback_data max 64 bytes
+                        if len(data.encode('utf-8')) > 64:
+                            data = data[:60]
+                        normalized_row.append({"label": label, "data": data})
+                normalized_buttons.append(normalized_row)
+            elif isinstance(row, str):
+                normalized_buttons.append([{"label": row, "data": row}])
+            elif isinstance(row, dict):
+                label = row.get("label", row.get("text", ""))
+                data = row.get("data", row.get("callback_data", label))
+                if len(data.encode('utf-8')) > 64:
+                    data = data[:60]
+                normalized_buttons.append([{"label": label, "data": data}])
+
+        try:
+            logger.info(f"Sending buttons: normalized={normalized_buttons!r}")
+            await send_buttons_callback(message, normalized_buttons)
+            logger.info("send_buttons_callback completed successfully")
+            return {
+                "content": [{"type": "text", "text": t("MESSAGE_SENT", preview=message[:50])}]
+            }
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": t("ERR_SEND_MESSAGE_FAILED", error=str(e))}],
                 "is_error": True
             }
 
@@ -2687,6 +2776,7 @@ Best for: Quick questions, formatting, translation, simple tasks.""",
     return [
         send_telegram_message,
         send_telegram_file,
+        send_message_with_buttons,
         web_search,
         web_fetch,
         pdf_to_markdown,

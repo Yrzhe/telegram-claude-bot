@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     HookMatcher,
     HookContext
 )
+from claude_agent_sdk.types import StreamEvent
 
 from .tools import create_telegram_tools, set_tool_config
 from ..i18n import t, get_tool_display_name
@@ -54,6 +55,7 @@ class TelegramAgentClient:
         working_directory: str,
         send_message_callback: Callable[[str], Awaitable[None]],
         send_file_callback: Callable[[str, str | None], Awaitable[bool]],
+        send_buttons_callback: Callable[[str, list], Awaitable[None]] | None = None,
         check_quota_callback: Callable[[int], tuple[bool, str]] | None = None,
         delegate_callback: Callable[[str, str], Awaitable[Optional[str]]] | None = None,
         delegate_review_callback: Callable[[str, str, str], Awaitable[Optional[str]]] | None = None,
@@ -81,6 +83,7 @@ class TelegramAgentClient:
             working_directory: Agent working directory (user-specific)
             send_message_callback: Callback to send Telegram messages
             send_file_callback: Callback to send Telegram files
+            send_buttons_callback: Callback to send messages with inline buttons
             check_quota_callback: Callback to check storage quota
             delegate_callback: Callback to delegate tasks to Sub Agents
             delegate_review_callback: Callback to delegate tasks with automatic quality review
@@ -104,6 +107,7 @@ class TelegramAgentClient:
         self.working_directory = Path(working_directory).resolve()
         self.send_message_callback = send_message_callback
         self.send_file_callback = send_file_callback
+        self.send_buttons_callback = send_buttons_callback
         self.check_quota_callback = check_quota_callback
         self.delegate_callback = delegate_callback
         self.delegate_review_callback = delegate_review_callback
@@ -149,12 +153,14 @@ class TelegramAgentClient:
         if is_sub_agent:
             self.telegram_tools = create_telegram_tools(
                 send_message_callback=self._noop_send_message,
-                send_file_callback=self._noop_send_file
+                send_file_callback=self._noop_send_file,
+                send_buttons_callback=None
             )
         else:
             self.telegram_tools = create_telegram_tools(
                 send_message_callback=send_message_callback,
-                send_file_callback=send_file_callback
+                send_file_callback=send_file_callback,
+                send_buttons_callback=send_buttons_callback
             )
 
         # Create MCP server
@@ -174,7 +180,7 @@ class TelegramAgentClient:
         return True
 
     def _is_path_safe(self, path_str: str) -> bool:
-        """Check if path is within the user's working directory."""
+        """Check if path is within the user's working directory or skills directory."""
         if not path_str:
             return True
         try:
@@ -184,7 +190,15 @@ class TelegramAgentClient:
             requested_path.relative_to(self.working_directory)
             return True
         except ValueError:
-            # Path is outside working directory
+            pass
+        # Also allow access to the sibling skills/ directory (read-only for scheduled tasks)
+        try:
+            requested_path = Path(path_str).resolve()
+            skills_dir = self.working_directory.parent / "skills"
+            requested_path.relative_to(skills_dir)
+            return True
+        except ValueError:
+            # Path is outside all allowed directories
             return False
 
     def _get_path_from_tool_input(self, tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
@@ -320,6 +334,7 @@ class TelegramAgentClient:
             allowed_tools.extend([
                 "mcp__telegram__send_telegram_message",
                 "mcp__telegram__send_telegram_file",
+                "mcp__telegram__send_message_with_buttons",
                 "mcp__telegram__delegate_task",
                 "mcp__telegram__delegate_and_review",
                 "mcp__telegram__schedule_list",
@@ -364,6 +379,7 @@ class TelegramAgentClient:
             model=self.model,
             setting_sources=["user", "project"],
             max_turns=self.max_turns,
+            include_partial_messages=True,
         )
 
         # Set resume if session ID provided
@@ -394,6 +410,8 @@ class TelegramAgentClient:
         user_message: str,
         resume_session_id: str | None = None,
         progress_callback: Callable[[str], Awaitable[None]] | None = None,
+        stream_callback: Callable[[str], Awaitable[None]] | None = None,
+        stream_reset_callback: Callable[[], None] | None = None,
         context_id: str | None = None,
         custom_system_prompt: str | None = None,
         track_files: bool = True
@@ -405,6 +423,8 @@ class TelegramAgentClient:
             user_message: Message from user
             resume_session_id: Session ID to resume (None for new session)
             progress_callback: Callback for progress updates
+            stream_callback: Callback for streaming text deltas (for sendMessageDraft)
+            stream_reset_callback: Callback to reset streamer on new content block
             context_id: Context ID for task tracking
             custom_system_prompt: Custom system prompt (for Sub Agents)
             track_files: Whether to track and send new files after completion
@@ -439,6 +459,7 @@ class TelegramAgentClient:
             "Skill": "🎯",
             "mcp__telegram__send_telegram_message": "💬",
             "mcp__telegram__send_telegram_file": "📤",
+            "mcp__telegram__send_message_with_buttons": "🔘",
             "mcp__telegram__web_search": "🌐",
             "mcp__telegram__web_fetch": "📥",
             "mcp__telegram__pdf_to_markdown": "📄",
@@ -464,7 +485,7 @@ class TelegramAgentClient:
                                 tool_name = block.name
 
                                 # Track if send_telegram_message was used
-                                if tool_name == "mcp__telegram__send_telegram_message":
+                                if tool_name in ("mcp__telegram__send_telegram_message", "mcp__telegram__send_message_with_buttons"):
                                     message_sent = True
 
                                 icon = tool_icons.get(tool_name, "🔧")
@@ -477,6 +498,20 @@ class TelegramAgentClient:
                                         await progress_callback(t("STEP_PROGRESS", step=step_count, tool=tool_display))
                                     except Exception as e:
                                         logger.debug(f"Progress callback failed: {e}")
+
+                    elif isinstance(message, StreamEvent):
+                        event = message.event
+                        event_type = event.get("type", "unknown")
+                        if event_type == "content_block_start":
+                            # Reset streamer on each new text block to avoid
+                            # accumulating text across agent turns
+                            cb = event.get("content_block", {})
+                            if cb.get("type") == "text" and stream_reset_callback:
+                                stream_reset_callback()
+                        elif event_type == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "text_delta" and stream_callback:
+                                await stream_callback(delta.get("text", ""))
 
                     elif isinstance(message, ResultMessage):
                         # Get session ID and usage info

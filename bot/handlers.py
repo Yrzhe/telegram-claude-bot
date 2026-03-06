@@ -13,6 +13,7 @@ from telegram.ext import (
     ContextTypes,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     Application
 )
@@ -32,6 +33,7 @@ from .message_queue import MessageQueueManager
 from .topic import TopicManager
 from .i18n import t, get_tool_display_name
 from .transcribe import create_transcriber, VoiceDictionary, TranscriptManager
+from .streaming import DraftStreamer
 
 logger = logging.getLogger(__name__)
 
@@ -475,7 +477,7 @@ def setup_handlers(
             if bot:
                 if message_queue_manager is None:
                     message_queue_manager = MessageQueueManager(bot)
-                send_message_callback, send_file_callback = message_queue_manager.get_callbacks(user_id, user_data_path)
+                send_message_callback, send_file_callback, _ = message_queue_manager.get_callbacks(user_id, user_data_path)
 
             task_managers[user_id] = TaskManager(
                 user_id,
@@ -543,7 +545,7 @@ def setup_handlers(
             message_queue_manager = MessageQueueManager(bot)
 
         # Get queue-wrapped callbacks that ensure message ordering
-        send_message, send_file = message_queue_manager.get_callbacks(user_id, user_data_path)
+        send_message, send_file, send_buttons = message_queue_manager.get_callbacks(user_id, user_data_path)
 
         # Get user's custom skills (needed by sub agents)
         custom_skills_content = ""
@@ -741,6 +743,7 @@ def setup_handlers(
             working_directory=str(user_data_path),
             send_message_callback=send_message,
             send_file_callback=send_file,
+            send_buttons_callback=send_buttons,
             check_quota_callback=check_quota,
             delegate_callback=delegate_callback,
             delegate_review_callback=delegate_review_callback,
@@ -2972,24 +2975,27 @@ Session Statistics:
         typing = TypingIndicator(context.bot, user_id)
         await typing.start()
 
-        # Maybe add reaction to user's message (30% probability)
-        asyncio.create_task(maybe_add_reaction(
-            bot=context.bot,
-            chat_id=user_id,
-            message_id=update.message.message_id,
-            user_message=user_message,
-            api_config=api_config,
-            probability=0.3
-        ))
+        try:
+            # Maybe add reaction to user's message (30% probability)
+            try:
+                asyncio.create_task(maybe_add_reaction(
+                    bot=context.bot,
+                    chat_id=user_id,
+                    message_id=update.message.message_id,
+                    user_message=user_message,
+                    api_config=api_config,
+                    probability=0.3
+                ))
+            except Exception:
+                pass  # Don't crash if update.message is unavailable (e.g. callback query)
 
         # Create progress update callback (edit the same message)
-        async def update_progress(status: str):
-            try:
-                await thinking_msg.edit_text(status)
-            except Exception:
-                pass
+            async def update_progress(status: str):
+                try:
+                    await thinking_msg.edit_text(status)
+                except Exception:
+                    pass
 
-        try:
             # Get topic manager and classify the message
             topic_mgr = get_topic_manager(user_id)
             topic, classification = await topic_mgr.process_message(
@@ -3063,12 +3069,21 @@ Session Statistics:
             else:
                 logger.info(f"User {user_id} starting new session")
 
-            # Process message (with progress callback)
+            # Create draft streamer for progressive text display
+            streamer = DraftStreamer(context.bot, user_id)
+
+            # Process message (with progress callback and stream callback)
             response = await agent.process_message(
                 message_to_send,
                 resume_session_id,
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                stream_callback=streamer.append,
+                stream_reset_callback=streamer.reset,
             )
+
+            # Flush any remaining draft before sending final message
+            if not response.message_sent:
+                await streamer.flush()
 
             # Check if session not found error OR silent failure (is_error with 0 turns)
             # Silent failure happens when SDK returns is_error=True but error_message=None
@@ -3102,11 +3117,19 @@ Session Statistics:
                 else:
                     context_message = user_message
 
+                # Reset streamer for retry
+                streamer = DraftStreamer(context.bot, user_id)
+
                 response = await agent.process_message(
                     context_message,
                     None,
-                    progress_callback=update_progress
+                    progress_callback=update_progress,
+                    stream_callback=streamer.append,
+                    stream_reset_callback=streamer.reset,
                 )
+
+                if not response.message_sent:
+                    await streamer.flush()
 
             # Update or create session with usage stats
             if response.session_id:
@@ -3163,7 +3186,7 @@ Session Statistics:
             )
 
             # Stop typing indicator
-            await typing.stop()
+            # (moved to finally block)
 
             # Delete progress message
             await thinking_msg.delete()
@@ -3173,8 +3196,6 @@ Session Statistics:
                 await send_long_message(update, response.text)
 
         except Exception as e:
-            # Stop typing indicator on error
-            await typing.stop()
             error_str = str(e)
             is_session_error = ("exit code 1" in error_str or "No conversation found" in error_str) and resume_session_id
             if is_session_error:
@@ -3184,11 +3205,16 @@ Session Statistics:
                 session_manager.end_session(user_id)
                 try:
                     agent = get_agent_for_user(user_id, context.bot)
+                    streamer = DraftStreamer(context.bot, user_id)
                     response = await agent.process_message(
                         user_message,
                         None,
-                        progress_callback=update_progress
+                        progress_callback=update_progress,
+                        stream_callback=streamer.append,
+                        stream_reset_callback=streamer.reset,
                     )
+                    if not response.message_sent:
+                        await streamer.flush()
                     if response.session_id:
                         session_manager.create_session(user_id, response.session_id)
                     user_manager.add_chat_record(
@@ -3211,7 +3237,6 @@ Session Statistics:
                         await send_long_message(update, response.text)
                     return
                 except Exception as retry_error:
-                    await typing.stop()
                     logger.error(f"User {user_id} retry failed: {retry_error}")
                     user_manager.add_chat_record(
                         user_id=user_id,
@@ -3241,6 +3266,9 @@ Session Statistics:
                 is_error=True
             )
             await thinking_msg.edit_text(t("PROCESS_FAILED", error=str(e)))
+        finally:
+            # Always stop typing indicator, even on CancelledError
+            await typing.stop()
 
     async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle voice messages - transcribe and pass to Agent"""
@@ -3443,12 +3471,21 @@ Session Statistics:
             else:
                 logger.info(f"User {user_id} starting new session with voice")
 
+            # Create draft streamer for progressive text display
+            streamer = DraftStreamer(context.bot, user_id)
+
             # Process message
             response = await agent.process_message(
                 message_to_send,
                 resume_session_id,
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                stream_callback=streamer.append,
+                stream_reset_callback=streamer.reset,
             )
+
+            # Flush any remaining draft
+            if not response.message_sent:
+                await streamer.flush()
 
             # Handle session expired error OR silent failure (is_error with 0 turns)
             session_failed = (
@@ -3480,11 +3517,19 @@ Session Statistics:
                 else:
                     context_message = user_message
 
+                # Reset streamer for retry
+                streamer = DraftStreamer(context.bot, user_id)
+
                 response = await agent.process_message(
                     context_message,
                     None,
-                    progress_callback=update_progress
+                    progress_callback=update_progress,
+                    stream_callback=streamer.append,
+                    stream_reset_callback=streamer.reset,
                 )
+
+                if not response.message_sent:
+                    await streamer.flush()
 
             # Update session with usage stats
             if response.session_id:
@@ -3656,12 +3701,21 @@ Session Statistics:
             else:
                 logger.info(f"User {user_id} starting new session with image")
 
+            # Create draft streamer for progressive text display
+            streamer = DraftStreamer(context.bot, user_id)
+
             # 处理消息
             response = await agent.process_message(
                 message_to_send,
                 resume_session_id,
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                stream_callback=streamer.append,
+                stream_reset_callback=streamer.reset,
             )
+
+            # Flush any remaining draft
+            if not response.message_sent:
+                await streamer.flush()
 
             # 处理 session 过期错误 OR 静默失败 (is_error with 0 turns)
             session_failed = (
@@ -3693,11 +3747,19 @@ Session Statistics:
                 else:
                     context_message = user_message
 
+                # Reset streamer for retry
+                streamer = DraftStreamer(context.bot, user_id)
+
                 response = await agent.process_message(
                     context_message,
                     None,
-                    progress_callback=update_progress
+                    progress_callback=update_progress,
+                    stream_callback=streamer.append,
+                    stream_reset_callback=streamer.reset,
                 )
+
+                if not response.message_sent:
+                    await streamer.flush()
 
             # 更新 session with usage stats
             if response.session_id:
@@ -3899,11 +3961,20 @@ Session Statistics:
 {user_message}"""
                         logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap (document)")
 
+            # Create draft streamer for progressive text display
+            streamer = DraftStreamer(context.bot, user_id)
+
             response = await agent.process_message(
                 message_to_send,
                 resume_session_id,
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                stream_callback=streamer.append,
+                stream_reset_callback=streamer.reset,
             )
+
+            # Flush any remaining draft
+            if not response.message_sent:
+                await streamer.flush()
 
             # Check if session not found error OR silent failure, auto retry
             session_failed = (
@@ -3935,11 +4006,19 @@ Session Statistics:
                 else:
                     context_message = user_message
 
+                # Reset streamer for retry
+                streamer = DraftStreamer(context.bot, user_id)
+
                 response = await agent.process_message(
                     context_message,
                     None,
-                    progress_callback=update_progress
+                    progress_callback=update_progress,
+                    stream_callback=streamer.append,
+                    stream_reset_callback=streamer.reset,
                 )
+
+                if not response.message_sent:
+                    await streamer.flush()
 
             # Update session
             if response.session_id:
@@ -3982,11 +4061,16 @@ Session Statistics:
                 session_manager.end_session(user_id)
                 try:
                     agent = get_agent_for_user(user_id, context.bot)
+                    streamer = DraftStreamer(context.bot, user_id)
                     response = await agent.process_message(
                         user_message,
                         None,
-                        progress_callback=update_progress
+                        progress_callback=update_progress,
+                        stream_callback=streamer.append,
+                        stream_reset_callback=streamer.reset,
                     )
+                    if not response.message_sent:
+                        await streamer.flush()
                     if response.session_id:
                         session_manager.create_session(user_id, response.session_id)
                     user_manager.add_chat_record(
@@ -4019,7 +4103,67 @@ Session Statistics:
             )
             await thinking_msg.edit_text(t("PROCESS_FILE_FAILED", error=str(e)))
 
+    async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle inline keyboard button clicks - treat as user text message"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        if not can_access(user_id):
+            await query.answer("Unauthorized")
+            return
+
+        # Answer the callback query to remove loading state
+        await query.answer()
+
+        # Get the button text that was clicked
+        button_data = query.data or ""
+        if not button_data:
+            return
+
+        # Find the label from the inline keyboard for display
+        button_label = button_data
+        if query.message and query.message.reply_markup:
+            for row in query.message.reply_markup.inline_keyboard:
+                for btn in row:
+                    if btn.callback_data == button_data:
+                        button_label = btn.text
+                        break
+
+        # Edit the original message to show which button was selected
+        try:
+            original_text = query.message.text or ""
+            await query.message.edit_text(
+                f"{original_text}\n\n>> {button_label}",
+                reply_markup=None  # Remove buttons after selection
+            )
+        except Exception:
+            pass
+
+        # Update user info
+        user = query.from_user
+        info_changed = user_manager.update_user_info(user_id, user.username or "", user.first_name or "")
+        if info_changed and user_id in user_agents:
+            del user_agents[user_id]
+
+        # Process as if user typed the button text
+        msg_handler = await get_message_handler(user_id)
+
+        async def send_progress():
+            return await context.bot.send_message(chat_id=user_id, text=f"🤔 {t('PROCESSING')}")
+
+        async def do_process(text, upd, ctx, thinking_msg):
+            await _process_user_message(text, upd, ctx, thinking_msg, user_id)
+
+        await msg_handler.handle_message(
+            text=button_label,
+            update=update,
+            context=context,
+            process_func=do_process,
+            send_progress=send_progress
+        )
+
     # Register handlers
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("session", session_command))
