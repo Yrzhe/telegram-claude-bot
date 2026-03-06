@@ -29,7 +29,9 @@ class Dependencies:
         get_task_manager: Callable,
         bot_token: str = "",
         allow_new_users: bool = True,
-        dev_mode: bool = False
+        dev_mode: bool = False,
+        skill_manager=None,
+        api_config: dict = None
     ):
         """
         Initialize dependencies.
@@ -43,6 +45,8 @@ class Dependencies:
             bot_token: Telegram bot token for sending files
             allow_new_users: Whether new user registration is allowed
             dev_mode: Enable development mode (relaxed auth)
+            skill_manager: SkillManager instance
+            api_config: API configuration (API keys, model, etc.)
         """
         self.telegram_auth = telegram_auth
         self.user_manager = user_manager
@@ -52,6 +56,8 @@ class Dependencies:
         self.bot_token = bot_token
         self.allow_new_users = allow_new_users
         self.dev_mode = dev_mode
+        self.skill_manager = skill_manager
+        self.api_config = api_config or {}
 
     async def get_current_user(
         self,
@@ -204,3 +210,13 @@ def get_working_directory(user_id: int = Depends(get_current_user_id)) -> str:
 def get_bot_token() -> str:
     """Dependency to get bot token for sending files."""
     return get_deps().bot_token
+
+
+def get_skill_manager():
+    """Dependency to get SkillManager."""
+    return get_deps().skill_manager
+
+
+def get_api_config() -> dict:
+    """Dependency to get API config (API keys, model, etc.)."""
+    return get_deps().api_config

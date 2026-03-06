@@ -108,6 +108,16 @@ PATH_SENSITIVE_COMMANDS = [
     'ln',
 ]
 
+# Read-type commands that also need path validation (prevent cross-user snooping)
+READ_PATH_COMMANDS = [
+    'cat', 'head', 'tail', 'less', 'more',
+    'ls', 'find', 'locate',
+    'file', 'stat',
+    'diff', 'cmp',
+    'wc',
+    'tar', 'zip', 'unzip', 'gzip', 'gunzip',
+]
+
 
 def _normalize_command(command: str) -> str:
     """Normalize command for analysis."""
@@ -185,7 +195,8 @@ def _is_path_within_working_dir(path: str, working_dir: Path) -> bool:
 def check_bash_safety(
     command: str,
     working_dir: Path,
-    user_id: int
+    user_id: int,
+    is_admin: bool = False
 ) -> SafetyCheckResult:
     """
     Check if a Bash command is safe to execute.
@@ -194,6 +205,7 @@ def check_bash_safety(
         command: The Bash command to check
         working_dir: User's working directory
         user_id: User ID for logging
+        is_admin: Whether the user is an admin (bypasses path restrictions for read commands)
 
     Returns:
         SafetyCheckResult with safety assessment
@@ -223,7 +235,17 @@ def check_bash_safety(
     prefix = _get_command_prefix(normalized)
 
     # Layer 3: Path-sensitive commands need path validation
-    if prefix in PATH_SENSITIVE_COMMANDS:
+    if prefix in PATH_SENSITIVE_COMMANDS or prefix in READ_PATH_COMMANDS:
+        # Admin can bypass path check for read-type commands (not destructive ones)
+        if is_admin and prefix in READ_PATH_COMMANDS:
+            logger.info(f"Admin {user_id} Bash ALLOWED (admin read): {command[:100]}")
+            return SafetyCheckResult(
+                is_safe=True,
+                level=SafetyLevel.MODERATE,
+                reason="Admin user, read command allowed",
+                command=command
+            )
+
         paths = _extract_paths(normalized)
         for path in paths:
             if not _is_path_within_working_dir(path, working_dir):

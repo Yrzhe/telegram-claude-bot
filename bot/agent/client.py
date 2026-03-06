@@ -214,7 +214,10 @@ class TelegramAgentClient:
         # Bash safety check - CRITICAL
         if tool_name == 'Bash':
             command = tool_input.get('command', '')
-            result = check_bash_safety(command, self.working_directory, self.user_id)
+            result = check_bash_safety(
+                command, self.working_directory, self.user_id,
+                is_admin=(self.user_id in self.admin_user_ids)
+            )
 
             if not result.is_safe:
                 logger.warning(
@@ -468,8 +471,8 @@ class TelegramAgentClient:
                                 display_name = get_tool_display_name(tool_name)
                                 tool_display = f"{icon} {display_name}"
 
-                                # Only main agent reports progress to user
-                                if progress_callback and not self.is_sub_agent:
+                                # Report progress (main agent or sub-agent with callback)
+                                if progress_callback:
                                     try:
                                         await progress_callback(t("STEP_PROGRESS", step=step_count, tool=tool_display))
                                     except Exception as e:

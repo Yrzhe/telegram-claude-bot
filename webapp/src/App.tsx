@@ -4,58 +4,68 @@ import { Layout } from './components/layout/Layout'
 import { FilesPage } from './pages/FilesPage'
 import { SchedulesPage } from './pages/SchedulesPage'
 import { SubAgentsPage } from './pages/SubAgentsPage'
+import { SkillsPage } from './pages/SkillsPage'
+import { CleanupPage } from './pages/CleanupPage'
 import { useTelegram } from './hooks/useTelegram'
 import { useAuthStore } from './stores/auth'
 
 function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { isReady, initData, isDev } = useTelegram()
-  const { token, isLoading, error, login, needsReauth, isHydrated } = useAuthStore()
-  const [authAttempted, setAuthAttempted] = useState(false)
+  const { isLoading, error, login, token } = useAuthStore()
+  const [telegramTimeout, setTelegramTimeout] = useState(false)
 
+  // Timeout: if Telegram SDK never becomes ready, show diagnostic
   useEffect(() => {
-    // Reset authAttempted when needsReauth is triggered
-    if (needsReauth) {
-      setAuthAttempted(false)
-    }
-  }, [needsReauth])
+    if (isReady) return
+    const timer = setTimeout(() => setTelegramTimeout(true), 5000)
+    return () => clearTimeout(timer)
+  }, [isReady])
 
+  // Auth: when Telegram SDK is ready, authenticate immediately
   useEffect(() => {
-    // Wait for both Telegram SDK and store hydration
-    if (!isReady || !isHydrated || authAttempted) return
+    if (!isReady) return
 
-    const authenticate = async () => {
-      setAuthAttempted(true)
-
-      // If already have a valid token and not needing reauth, skip
-      if (token && !needsReauth) {
-        console.log('Using cached token, skipping authentication')
-        return
-      }
-
-      // Dev mode bypass
-      if (isDev) {
-        console.log('Dev mode: skipping authentication')
-        return
-      }
-
-      if (!initData) {
-        console.error('No initData available')
-        return
-      }
-
-      try {
-        console.log('Authenticating with Telegram...')
-        await login(initData)
-      } catch (err) {
-        console.error('Authentication failed:', err)
-      }
+    if (isDev) {
+      console.log('Dev mode: skipping authentication')
+      return
     }
 
-    authenticate()
-  }, [isReady, isHydrated, initData, token, authAttempted, login, isDev, needsReauth])
+    if (!initData) {
+      console.error('No initData available')
+      return
+    }
 
-  // Show loading state while initializing
-  if (!isReady || !isHydrated || isLoading) {
+    console.log('Authenticating with Telegram...')
+    login(initData).catch((err) => {
+      console.error('Authentication failed:', err)
+    })
+  }, [isReady, initData, isDev, login])
+
+  // Telegram SDK timeout - not opened from Telegram
+  if (telegramTimeout && !isReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--tg-theme-bg-color,#1a1a2e)] p-4">
+        <div className="text-center">
+          <div className="text-4xl mb-4">🔗</div>
+          <h1 className="text-lg font-semibold text-[var(--tg-theme-text-color,#e0e0e0)]">
+            Cannot Connect to Telegram
+          </h1>
+          <p className="mt-2 text-[var(--tg-theme-hint-color,#999)]">
+            Please open this app from the Telegram bot menu.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-[var(--tg-theme-button-color,#3390ec)] text-[var(--tg-theme-button-text-color,#fff)] rounded-lg"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Loading state
+  if (!isReady || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--tg-theme-bg-color)]">
         <div className="text-center">
@@ -66,7 +76,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // Show error state
+  // Auth error
   if (error && !token && !isDev) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--tg-theme-bg-color)] p-4">
@@ -99,6 +109,8 @@ function App() {
             <Route index element={<FilesPage />} />
             <Route path="schedules" element={<SchedulesPage />} />
             <Route path="subagents" element={<SubAgentsPage />} />
+            <Route path="skills" element={<SkillsPage />} />
+            <Route path="cleanup" element={<CleanupPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

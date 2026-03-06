@@ -4,6 +4,111 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-06] Feature: Add Cleanup Agent to Mini App
+
+### New Features
+- Added Cleanup tab in the Mini App for intelligent file cleanup
+- Cleanup rules editor: editable `.cleanup_rules.md` defines protected vs. cleanable paths
+- Planning sub-agent scans directories and proposes structured cleanup plans
+- Review UI shows action list with icons (delete/archive/move), stats (items, size), and summary
+- Feedback loop: provide feedback on the plan to re-plan before execution
+- Execution uses direct Python file operations (delete, archive to zip, move) for safety
+- System-protected paths (completed_tasks/, running_tasks/, schedules/, etc.) are hardcoded and cannot be overridden
+- Real-time progress streaming via WebSocket during planning (shows each agent step live)
+- Glob pattern expansion in execution: paths with wildcards (e.g. `*.png`) are auto-resolved
+
+### API Endpoints
+- `GET /api/cleanup/rules` — Read cleanup rules file
+- `PUT /api/cleanup/rules` — Save cleanup rules file
+- `POST /api/cleanup/plan` — Generate cleanup plan via sub-agent (supports feedback for re-planning)
+- `POST /api/cleanup/execute` — Execute approved cleanup plan
+- `GET /api/cleanup/status` — Get current cleanup session status
+- `POST /api/cleanup/cancel` — Reset cleanup session
+
+### New Files
+- `api/routes/cleanup.py` — Cleanup API route handlers with planning and execution logic
+- `webapp/src/stores/cleanup.ts` — Zustand store for cleanup workflow state
+- `webapp/src/pages/CleanupPage.tsx` — Cleanup page component with phase-based UI
+
+### Modified Files
+- `api/dependencies.py` — Added api_config field and get_api_config() dependency
+- `api/server.py` — Added api_config parameter, registered cleanup router
+- `api/routes/__init__.py` — Added cleanup to imports
+- `main.py` — Passes api_config through to API server
+- `bot/agent/client.py` — Allow progress_callback for sub-agents (removed is_sub_agent guard)
+- `webapp/src/api/types.ts` — Added cleanup types (CleanupAction, CleanupPlan, CleanupResult, etc.)
+- `webapp/src/api/client.ts` — Added 6 cleanup API methods
+- `webapp/src/components/layout/TabBar.tsx` — Added Cleanup tab with Trash2 icon
+- `webapp/src/App.tsx` — Added /cleanup route
+
+---
+
+## [2026-03-06] Feature: Add Skills tab to Mini App
+
+### New Features
+- Added Skills tab in the Mini App to view, inspect, and delete installed Claude skills
+- Skills API endpoints: GET /api/skills, GET /api/skills/{name}, DELETE /api/skills/{name}
+- Skills page shows installed count, skill list with descriptions, expandable SKILL.md content, and file tree
+- Delete skill with confirmation dialog
+
+### New Files
+- `api/routes/skills.py` — Skills API route handlers
+- `webapp/src/stores/skills.ts` — Zustand store for skills state
+- `webapp/src/pages/SkillsPage.tsx` — Skills tab page component
+
+### Modified Files
+- `api/dependencies.py` — Added skill_manager field and get_skill_manager dependency
+- `api/server.py` — Added skill_manager parameter, registered skills router
+- `main.py` — Passes skill_manager to API server
+- `webapp/src/api/types.ts` — Added SkillItem, SkillListResponse, SkillDetailResponse types
+- `webapp/src/api/client.ts` — Added getSkills(), getSkill(), deleteSkill() methods
+- `webapp/src/components/layout/TabBar.tsx` — Added Skills tab with Sparkles icon
+- `webapp/src/App.tsx` — Added /skills route
+
+---
+
+## [2026-03-06] Refactor: Simplify Mini App auth flow to eliminate infinite loading
+
+### Problem
+- Mini App got stuck on infinite "Loading..." due to race conditions between Telegram SDK init, zustand persist rehydration, WebSocket pre-connection, and JWT token expiry detection
+- 5 state flags (`isReady`, `isHydrated`, `isLoading`, `needsReauth`, `authAttempted`) with 2 interacting useEffects — if any step stalled, the app hung forever
+- Opening the app in a regular browser showed infinite loading with no diagnostic
+
+### Solution
+- Removed JWT caching in localStorage entirely — always authenticate fresh with Telegram `initData` on each Mini App open
+- Removed `persist` middleware from zustand auth store
+- Simplified to 2 flags (`isReady`, `isLoading`) and 2 independent effects (timeout + auth)
+- Added 5-second timeout with "Cannot Connect to Telegram" diagnostic for non-Telegram browsers
+- Removed `onAuthFailure` callback from WebSocket client
+- Removed `onUnauthorized` callback from API client
+- Added localStorage cleanup for stale `telegram-miniapp-auth` data
+
+### Modified Files
+- `webapp/src/stores/auth.ts` — Rewritten: removed persist middleware, reauth state machine
+- `webapp/src/App.tsx` — Simplified: single linear auth flow + 5s timeout
+- `webapp/src/api/websocket.ts` — Removed onAuthFailure callback
+- `webapp/src/api/client.ts` — Removed onUnauthorized callback
+- `webapp/src/main.tsx` — Added localStorage cleanup
+
+---
+
+## [2026-03-06] Security: Add path validation for Bash read commands
+
+### Problem
+- Bash `ls`, `cat`, `find`, `grep` etc. were whitelisted as "safe" without path checks
+- Any user's Agent could read other users' files via `cat /app/users/<other_id>/...`
+- Only destructive commands (rm, cp, mv) had path validation
+
+### Solution
+- Added `READ_PATH_COMMANDS` list with all read-type commands that access file paths
+- Path validation now applies to both write AND read Bash commands
+- Commands like `ls /app/users/` or `cat /app/users/other/file` are now blocked
+
+### Modified Files
+- `bot/bash_safety.py` - Added READ_PATH_COMMANDS and extended path validation
+
+---
+
 ## [2026-03-06] Fix skill scripts path resolution for user-installed skills
 
 ### Problem

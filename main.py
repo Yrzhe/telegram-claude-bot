@@ -57,7 +57,9 @@ async def run_api_server(
     allow_new_users: bool,
     host: str = "127.0.0.1",
     port: int = 8000,
-    dev_mode: bool = False
+    dev_mode: bool = False,
+    skill_manager=None,
+    api_config: dict = None
 ):
     """Run the Mini App API server."""
     try:
@@ -86,7 +88,9 @@ async def run_api_server(
             get_task_manager=get_task_manager,
             bot_token=bot_token,
             allow_new_users=allow_new_users,
-            dev_mode=dev_mode
+            dev_mode=dev_mode,
+            skill_manager=skill_manager,
+            api_config=api_config
         )
 
         # Configure uvicorn
@@ -486,7 +490,9 @@ Task instructions:
                     allow_new_users=allow_new_users,
                     host="0.0.0.0",
                     port=api_port,
-                    dev_mode=api_dev_mode
+                    dev_mode=api_dev_mode,
+                    skill_manager=skill_manager,
+                    api_config=api_config
                 )
             )
             logger.info(f"Mini App API server starting on port {api_port}")

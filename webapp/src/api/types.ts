@@ -108,9 +108,27 @@ export interface SubAgentHistoryItem {
   result_preview?: string
 }
 
+// Skills
+export interface SkillItem {
+  name: string
+  description: string
+}
+
+export interface SkillListResponse {
+  skills: SkillItem[]
+  count: number
+}
+
+export interface SkillDetailResponse {
+  name: string
+  description: string
+  content: string
+  files: string[]
+}
+
 // WebSocket Message Types
 export interface WSMessage {
-  type: 'task_update' | 'task_created' | 'schedule_executed' | 'storage_update'
+  type: 'task_update' | 'task_created' | 'schedule_executed' | 'storage_update' | 'cleanup_update'
   data: unknown
 }
 
@@ -123,4 +141,43 @@ export interface TaskUpdateData {
 export interface StorageUpdateData {
   used_bytes: number
   quota_bytes: number
+}
+
+// Cleanup
+export interface CleanupAction {
+  action: 'delete' | 'archive' | 'move'
+  path: string
+  target?: string
+  reason: string
+  size_bytes: number
+  item_count: number
+}
+
+export interface CleanupPlan {
+  plan_id: string
+  actions: CleanupAction[]
+  total_size_bytes: number
+  total_items: number
+  summary: string
+  created_at: string
+  error?: string
+}
+
+export interface CleanupRulesResponse {
+  content: string
+  modified_at?: string
+}
+
+export interface CleanupResult {
+  success_count: number
+  fail_count: number
+  freed_bytes: number
+  errors?: string[]
+}
+
+export interface CleanupStatusResponse {
+  status: 'idle' | 'planning' | 'ready' | 'executing' | 'completed' | 'failed'
+  plan?: CleanupPlan
+  result?: CleanupResult
+  error?: string
 }

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import TelegramAuth
 from .websocket import ws_manager
 from .dependencies import Dependencies, set_dependencies, get_deps
-from .routes import auth, files, tasks, schedules, subagents
+from .routes import auth, files, tasks, schedules, subagents, skills, cleanup
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,9 @@ def create_api_app(
     bot_token: str,
     allow_new_users: bool = True,
     dev_mode: bool = False,
-    static_dir: Optional[str] = None
+    static_dir: Optional[str] = None,
+    skill_manager=None,
+    api_config: dict = None
 ) -> FastAPI:
     """
     Create and configure the FastAPI application.
@@ -73,7 +75,9 @@ def create_api_app(
         get_task_manager=get_task_manager,
         bot_token=bot_token,
         allow_new_users=allow_new_users,
-        dev_mode=dev_mode
+        dev_mode=dev_mode,
+        skill_manager=skill_manager,
+        api_config=api_config
     )
     set_dependencies(deps)
 
@@ -96,6 +100,8 @@ def create_api_app(
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
     app.include_router(subagents.router, prefix="/api/subagents", tags=["subagents"])
+    app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
+    app.include_router(cleanup.router, prefix="/api/cleanup", tags=["cleanup"])
 
     # WebSocket endpoint
     @app.websocket("/api/ws")

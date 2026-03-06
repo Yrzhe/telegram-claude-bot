@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { User } from '../api/types'
 import { api } from '../api/client'
 import { wsClient } from '../api/websocket'
@@ -9,93 +8,43 @@ interface AuthState {
   user: User | null
   isLoading: boolean
   error: string | null
-  needsReauth: boolean
-  isHydrated: boolean  // Track if store has been rehydrated
 
   login: (initData: string) => Promise<void>
   logout: () => void
   setError: (error: string | null) => void
-  triggerReauth: () => void
-  setHydrated: () => void
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      token: null,
-      user: null,
-      isLoading: false,
-      error: null,
-      needsReauth: false,
-      isHydrated: false,
+export const useAuthStore = create<AuthState>()((set) => ({
+  token: null,
+  user: null,
+  isLoading: false,
+  error: null,
 
-      login: async (initData: string) => {
-        set({ isLoading: true, error: null, needsReauth: false })
-        try {
-          const response = await api.authenticate(initData)
-          api.setToken(response.token)
-          wsClient.connect(response.token)
-          set({
-            token: response.token,
-            user: response.user,
-            isLoading: false,
-          })
-        } catch (error) {
-          set({
-            error: error instanceof Error ? error.message : 'Authentication failed',
-            isLoading: false,
-          })
-          throw error
-        }
-      },
-
-      logout: () => {
-        api.setToken(null)
-        wsClient.disconnect()
-        set({ token: null, user: null, error: null, needsReauth: false })
-      },
-
-      setError: (error: string | null) => set({ error }),
-
-      triggerReauth: () => {
-        // Clear token and trigger re-authentication
-        api.setToken(null)
-        wsClient.disconnect()
-        set({ token: null, user: null, needsReauth: true, error: null })
-      },
-
-      setHydrated: () => set({ isHydrated: true }),
-    }),
-    {
-      name: 'telegram-miniapp-auth',
-      partialize: (state) => ({ token: state.token, user: state.user }),
-      onRehydrateStorage: () => (state) => {
-        // Restore API client token on rehydration
-        if (state?.token) {
-          api.setToken(state.token)
-          wsClient.connect(state.token)
-        }
-        // Mark as hydrated
-        useAuthStore.getState().setHydrated()
-        // Set up 401 handler (HTTP API)
-        api.setOnUnauthorized(() => {
-          useAuthStore.getState().triggerReauth()
-        })
-        // Set up WebSocket auth failure handler
-        wsClient.setOnAuthFailure(() => {
-          useAuthStore.getState().triggerReauth()
-        })
-      },
+  login: async (initData: string) => {
+    set({ isLoading: true, error: null })
+    try {
+      const response = await api.authenticate(initData)
+      api.setToken(response.token)
+      wsClient.connect(response.token)
+      set({
+        token: response.token,
+        user: response.user,
+        isLoading: false,
+      })
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Authentication failed',
+        isLoading: false,
+      })
+      throw error
     }
-  )
-)
+  },
 
-// Set up 401 handler on initial load
-api.setOnUnauthorized(() => {
-  useAuthStore.getState().triggerReauth()
-})
+  logout: () => {
+    api.setToken(null)
+    wsClient.disconnect()
+    set({ token: null, user: null, error: null })
+  },
 
-// Set up WebSocket auth failure handler on initial load
-wsClient.setOnAuthFailure(() => {
-  useAuthStore.getState().triggerReauth()
-})
+  setError: (error: string | null) => set({ error }),
+}))

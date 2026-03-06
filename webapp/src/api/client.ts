@@ -8,6 +8,10 @@ import type {
   SubAgentStatusResponse,
   SubAgentHistoryItem,
   StorageInfo,
+  SkillListResponse,
+  SkillDetailResponse,
+  CleanupRulesResponse,
+  CleanupStatusResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -26,13 +30,6 @@ class ApiClient {
     }
   }
 
-  // Callback for handling 401 errors (set by auth store)
-  private onUnauthorized: (() => void) | null = null
-
-  setOnUnauthorized(callback: (() => void) | null) {
-    this.onUnauthorized = callback
-  }
-
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -45,10 +42,6 @@ class ApiClient {
     if (!response.ok) {
       if (response.status === 401) {
         this.token = null
-        // Trigger re-authentication
-        if (this.onUnauthorized) {
-          this.onUnauthorized()
-        }
         throw new Error('Session expired. Please reopen the app.')
       }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -157,6 +150,53 @@ class ApiClient {
 
   async getSubAgentDocument(taskId: string): Promise<{ content: string }> {
     return this.request(`/subagents/${taskId}/document`)
+  }
+
+  // Skills
+  async getSkills(): Promise<SkillListResponse> {
+    return this.request<SkillListResponse>('/skills')
+  }
+
+  async getSkill(name: string): Promise<SkillDetailResponse> {
+    return this.request<SkillDetailResponse>(`/skills/${encodeURIComponent(name)}`)
+  }
+
+  async deleteSkill(name: string): Promise<{ success: boolean }> {
+    return this.request(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  // Cleanup
+  async getCleanupRules(): Promise<CleanupRulesResponse> {
+    return this.request<CleanupRulesResponse>('/cleanup/rules')
+  }
+
+  async updateCleanupRules(content: string): Promise<{ success: boolean }> {
+    return this.request('/cleanup/rules', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  async generateCleanupPlan(feedback?: string): Promise<CleanupStatusResponse> {
+    return this.request<CleanupStatusResponse>('/cleanup/plan', {
+      method: 'POST',
+      body: JSON.stringify({ feedback: feedback || null }),
+    })
+  }
+
+  async executeCleanup(planId: string): Promise<CleanupStatusResponse> {
+    return this.request<CleanupStatusResponse>('/cleanup/execute', {
+      method: 'POST',
+      body: JSON.stringify({ plan_id: planId }),
+    })
+  }
+
+  async getCleanupStatus(): Promise<CleanupStatusResponse> {
+    return this.request<CleanupStatusResponse>('/cleanup/status')
+  }
+
+  async cancelCleanup(): Promise<{ success: boolean }> {
+    return this.request('/cleanup/cancel', { method: 'POST' })
   }
 }
 

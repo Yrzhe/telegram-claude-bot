@@ -1,10 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FolderOpen, Clock, Bot } from 'lucide-react'
+import { FolderOpen, Clock, Bot, Sparkles, Trash2 } from 'lucide-react'
 
 const tabs = [
   { path: '/', icon: FolderOpen, label: 'Files' },
   { path: '/schedules', icon: Clock, label: 'Schedules' },
   { path: '/subagents', icon: Bot, label: 'Agents' },
+  { path: '/skills', icon: Sparkles, label: 'Skills' },
+  { path: '/cleanup', icon: Trash2, label: 'Cleanup' },
 ]
 
 export function TabBar() {

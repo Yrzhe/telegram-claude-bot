@@ -8,11 +8,6 @@ class WebSocketClient {
   private token: string | null = null
   private pingInterval: ReturnType<typeof setInterval> | null = null
   private wasConnected = false
-  private onAuthFailure: (() => void) | null = null
-
-  setOnAuthFailure(callback: () => void) {
-    this.onAuthFailure = callback
-  }
 
   connect(token: string) {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -57,10 +52,9 @@ class WebSocketClient {
       console.log('WebSocket disconnected')
       this.stopPing()
 
-      // If connection was never established, likely an auth failure (403)
+      // If connection was never established, likely an auth failure
       if (!this.wasConnected) {
-        console.log('WebSocket failed before opening - triggering reauth')
-        this.onAuthFailure?.()
+        console.log('WebSocket failed before opening - auth may have failed')
         return
       }
 
