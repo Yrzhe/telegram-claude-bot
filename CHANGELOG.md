@@ -4,6 +4,39 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-20] Fix: Skill Validator False Positives and Admin Force Install
+
+### Bug Fixes
+- Skill validator no longer flags shell-native patterns (`$(...)`, `> /dev/null`) in `.sh` files
+- Skill validator no longer flags `..\\` as path traversal in `.json`/`.yaml` files (where `\\` is just escape syntax)
+
+### New Features
+- Admin users can reply `force` to bypass skill validation and install anyway
+- Validation failure message now hints admin users about the force install option
+
+### Modified Files
+- `bot/skill/validator.py` - Added file-type-aware security scanning
+- `bot/skill/manager.py` - Added `skip_validation` parameter to `install_skill_from_zip`
+- `bot/handlers.py` - Added `force` reply handling for admin skill installation
+
+---
+
+## [2026-03-07] Feature: Route Scheduled Task Results Through Main Agent
+
+### New Features
+- Scheduled task results are now delivered through the main agent instead of being sent directly to the user via `bot.send_message()`
+- Main agent reviews and formats the sub-agent's result before sending, ensuring consistent presentation
+- Scheduled task notifications are saved to `data/scheduled_notifications.jsonl` so the main agent has context when user asks about recent tasks (e.g., "what was the scan result?")
+- Recent scheduled task results (last 5) are automatically loaded into the main agent's context at conversation start
+- Fallback: if the main agent delivery fails, the result is still sent directly to the user
+
+### Modified Files
+- `main.py` - Added `_deliver_via_main_agent()`, `_save_scheduled_notification()`, `_load_scheduled_notifications()`; replaced direct `send_message` with main agent delivery in `execute_scheduled_task()`
+- `bot/handlers.py` - Load scheduled notifications into `context_summary` in `get_agent_for_user()`
+
+### Cost Impact
+- Each scheduled task now additionally invokes the main agent (~$0.2-0.3) for formatting and delivery
+
 ## [2026-03-07] Fix: Allow scheduled tasks to access skills directory
 
 ### Bug Fixes

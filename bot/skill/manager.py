@@ -94,7 +94,8 @@ class SkillManager:
     def install_skill_from_zip(
         self,
         user_id: int,
-        zip_path: Path
+        zip_path: Path,
+        skip_validation: bool = False
     ) -> tuple[bool, str, Optional[SkillValidationResult]]:
         """
         Install a skill from a zip file.
@@ -131,8 +132,11 @@ class SkillManager:
             # Validate the skill
             result = self.validator.validate_skill_directory(skill_dir)
 
-            if not result.is_valid:
+            if not result.is_valid and not skip_validation:
                 return False, "Skill validation failed", result
+
+            if not result.is_valid and skip_validation:
+                logger.warning(f"Admin force-installing skill with validation errors for user {user_id}")
 
             # Check if skill already exists
             skill_name = result.skill_name

@@ -734,6 +734,25 @@ def setup_handlers(
         except Exception as e:
             logger.error(f"Failed to pre-load memories for user {user_id}: {e}")
 
+        # Load recent scheduled task notifications for context
+        try:
+            from main import _load_scheduled_notifications
+            notifications = _load_scheduled_notifications(user_data_path, max_count=5)
+            if notifications:
+                notif_lines = []
+                for n in notifications:
+                    notif_lines.append(f"- [{n['completed_at']}] {n['task_name']}: {n['summary']}")
+                notif_text = "\n\n## Recent Scheduled Task Results\n"
+                notif_text += "These scheduled tasks completed recently. User may ask about them:\n\n"
+                notif_text += "\n".join(notif_lines)
+
+                if context_summary:
+                    context_summary = context_summary + notif_text
+                else:
+                    context_summary = notif_text
+        except Exception as e:
+            logger.error(f"Failed to load scheduled notifications for user {user_id}: {e}")
+
         # Get topic context from TopicManager
         topic_mgr = get_topic_manager(user_id)
         topic_context = topic_mgr.get_context_string()
@@ -2932,9 +2951,43 @@ Session Statistics:
                             for sug in suggestions[:3]:
                                 error_msg += f"- {sug[:200]}\n"
 
+                        # Hint admin about force install
+                        if is_admin(user_id):
+                            error_msg += f"\n💡 Admin: reply 'force' to install anyway (bypass validation)"
+
                     await update.message.reply_text(error_msg)
+                    # If validation failed, keep pending so admin can force
+                    if not success and is_admin(user_id):
+                        pending_skill_installs[user_id] = zip_path
+                        return
 
                 # Clean up zip file
+                try:
+                    zip_path.unlink()
+                except Exception:
+                    pass
+                return
+
+            elif user_reply in ("force", "强制", "强制安装") and is_admin(user_id):
+                pending_skill_installs.pop(user_id)
+                await update.message.reply_text("⚠️ Admin force install - bypassing validation...")
+
+                success, message, result = skill_manager.install_skill_from_zip(
+                    user_id, zip_path, skip_validation=True
+                )
+
+                if success:
+                    if user_id in user_agents:
+                        del user_agents[user_id]
+
+                    await update.message.reply_text(
+                        t("SKILL_INSTALL_SUCCESS",
+                          name=result.skill_name,
+                          description=result.skill_description or "")
+                    )
+                else:
+                    await update.message.reply_text(f"{t('SKILL_INSTALL_FAILED')}\n\n{message}")
+
                 try:
                     zip_path.unlink()
                 except Exception:
@@ -3070,7 +3123,7 @@ Session Statistics:
                 logger.info(f"User {user_id} starting new session")
 
             # Create draft streamer for progressive text display
-            streamer = DraftStreamer(context.bot, user_id)
+            streamer = DraftStreamer(thinking_msg)
 
             # Process message (with progress callback and stream callback)
             response = await agent.process_message(
@@ -3079,11 +3132,13 @@ Session Statistics:
                 progress_callback=update_progress,
                 stream_callback=streamer.append,
                 stream_reset_callback=streamer.reset,
+                stream_stop_callback=streamer.stop,
             )
 
             # Flush any remaining draft before sending final message
             if not response.message_sent:
                 await streamer.flush()
+            await streamer.clear()
 
             # Check if session not found error OR silent failure (is_error with 0 turns)
             # Silent failure happens when SDK returns is_error=True but error_message=None
@@ -3118,7 +3173,7 @@ Session Statistics:
                     context_message = user_message
 
                 # Reset streamer for retry
-                streamer = DraftStreamer(context.bot, user_id)
+                streamer = DraftStreamer(thinking_msg)
 
                 response = await agent.process_message(
                     context_message,
@@ -3126,10 +3181,12 @@ Session Statistics:
                     progress_callback=update_progress,
                     stream_callback=streamer.append,
                     stream_reset_callback=streamer.reset,
+                    stream_stop_callback=streamer.stop,
                 )
 
                 if not response.message_sent:
                     await streamer.flush()
+                await streamer.clear()
 
             # Update or create session with usage stats
             if response.session_id:
@@ -3205,16 +3262,18 @@ Session Statistics:
                 session_manager.end_session(user_id)
                 try:
                     agent = get_agent_for_user(user_id, context.bot)
-                    streamer = DraftStreamer(context.bot, user_id)
+                    streamer = DraftStreamer(thinking_msg)
                     response = await agent.process_message(
                         user_message,
                         None,
                         progress_callback=update_progress,
                         stream_callback=streamer.append,
                         stream_reset_callback=streamer.reset,
+                        stream_stop_callback=streamer.stop,
                     )
                     if not response.message_sent:
                         await streamer.flush()
+                    await streamer.clear()
                     if response.session_id:
                         session_manager.create_session(user_id, response.session_id)
                     user_manager.add_chat_record(
@@ -3472,7 +3531,7 @@ Session Statistics:
                 logger.info(f"User {user_id} starting new session with voice")
 
             # Create draft streamer for progressive text display
-            streamer = DraftStreamer(context.bot, user_id)
+            streamer = DraftStreamer(thinking_msg)
 
             # Process message
             response = await agent.process_message(
@@ -3481,11 +3540,13 @@ Session Statistics:
                 progress_callback=update_progress,
                 stream_callback=streamer.append,
                 stream_reset_callback=streamer.reset,
+                stream_stop_callback=streamer.stop,
             )
 
             # Flush any remaining draft
             if not response.message_sent:
                 await streamer.flush()
+            await streamer.clear()
 
             # Handle session expired error OR silent failure (is_error with 0 turns)
             session_failed = (
@@ -3518,7 +3579,7 @@ Session Statistics:
                     context_message = user_message
 
                 # Reset streamer for retry
-                streamer = DraftStreamer(context.bot, user_id)
+                streamer = DraftStreamer(thinking_msg)
 
                 response = await agent.process_message(
                     context_message,
@@ -3526,10 +3587,12 @@ Session Statistics:
                     progress_callback=update_progress,
                     stream_callback=streamer.append,
                     stream_reset_callback=streamer.reset,
+                    stream_stop_callback=streamer.stop,
                 )
 
                 if not response.message_sent:
                     await streamer.flush()
+                await streamer.clear()
 
             # Update session with usage stats
             if response.session_id:
@@ -3702,7 +3765,7 @@ Session Statistics:
                 logger.info(f"User {user_id} starting new session with image")
 
             # Create draft streamer for progressive text display
-            streamer = DraftStreamer(context.bot, user_id)
+            streamer = DraftStreamer(thinking_msg)
 
             # 处理消息
             response = await agent.process_message(
@@ -3711,11 +3774,13 @@ Session Statistics:
                 progress_callback=update_progress,
                 stream_callback=streamer.append,
                 stream_reset_callback=streamer.reset,
+                stream_stop_callback=streamer.stop,
             )
 
             # Flush any remaining draft
             if not response.message_sent:
                 await streamer.flush()
+            await streamer.clear()
 
             # 处理 session 过期错误 OR 静默失败 (is_error with 0 turns)
             session_failed = (
@@ -3748,7 +3813,7 @@ Session Statistics:
                     context_message = user_message
 
                 # Reset streamer for retry
-                streamer = DraftStreamer(context.bot, user_id)
+                streamer = DraftStreamer(thinking_msg)
 
                 response = await agent.process_message(
                     context_message,
@@ -3756,10 +3821,12 @@ Session Statistics:
                     progress_callback=update_progress,
                     stream_callback=streamer.append,
                     stream_reset_callback=streamer.reset,
+                    stream_stop_callback=streamer.stop,
                 )
 
                 if not response.message_sent:
                     await streamer.flush()
+                await streamer.clear()
 
             # 更新 session with usage stats
             if response.session_id:
@@ -3962,7 +4029,7 @@ Session Statistics:
                         logger.info(f"User {user_id} including {len(history_text)} chars of context after {elapsed_seconds // 60}min gap (document)")
 
             # Create draft streamer for progressive text display
-            streamer = DraftStreamer(context.bot, user_id)
+            streamer = DraftStreamer(thinking_msg)
 
             response = await agent.process_message(
                 message_to_send,
@@ -3970,11 +4037,13 @@ Session Statistics:
                 progress_callback=update_progress,
                 stream_callback=streamer.append,
                 stream_reset_callback=streamer.reset,
+                stream_stop_callback=streamer.stop,
             )
 
             # Flush any remaining draft
             if not response.message_sent:
                 await streamer.flush()
+            await streamer.clear()
 
             # Check if session not found error OR silent failure, auto retry
             session_failed = (
@@ -4007,7 +4076,7 @@ Session Statistics:
                     context_message = user_message
 
                 # Reset streamer for retry
-                streamer = DraftStreamer(context.bot, user_id)
+                streamer = DraftStreamer(thinking_msg)
 
                 response = await agent.process_message(
                     context_message,
@@ -4015,10 +4084,12 @@ Session Statistics:
                     progress_callback=update_progress,
                     stream_callback=streamer.append,
                     stream_reset_callback=streamer.reset,
+                    stream_stop_callback=streamer.stop,
                 )
 
                 if not response.message_sent:
                     await streamer.flush()
+                await streamer.clear()
 
             # Update session
             if response.session_id:
@@ -4061,16 +4132,18 @@ Session Statistics:
                 session_manager.end_session(user_id)
                 try:
                     agent = get_agent_for_user(user_id, context.bot)
-                    streamer = DraftStreamer(context.bot, user_id)
+                    streamer = DraftStreamer(thinking_msg)
                     response = await agent.process_message(
                         user_message,
                         None,
                         progress_callback=update_progress,
                         stream_callback=streamer.append,
                         stream_reset_callback=streamer.reset,
+                        stream_stop_callback=streamer.stop,
                     )
                     if not response.message_sent:
                         await streamer.flush()
+                    await streamer.clear()
                     if response.session_id:
                         session_manager.create_session(user_id, response.session_id)
                     user_manager.add_chat_record(

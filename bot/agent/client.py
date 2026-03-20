@@ -379,7 +379,7 @@ class TelegramAgentClient:
             model=self.model,
             setting_sources=["user", "project"],
             max_turns=self.max_turns,
-            include_partial_messages=True,
+            include_partial_messages=False,
         )
 
         # Set resume if session ID provided
@@ -412,6 +412,7 @@ class TelegramAgentClient:
         progress_callback: Callable[[str], Awaitable[None]] | None = None,
         stream_callback: Callable[[str], Awaitable[None]] | None = None,
         stream_reset_callback: Callable[[], None] | None = None,
+        stream_stop_callback: Callable[[], None] | None = None,
         context_id: str | None = None,
         custom_system_prompt: str | None = None,
         track_files: bool = True
@@ -487,6 +488,9 @@ class TelegramAgentClient:
                                 # Track if send_telegram_message was used
                                 if tool_name in ("mcp__telegram__send_telegram_message", "mcp__telegram__send_message_with_buttons"):
                                     message_sent = True
+                                    # Stop streaming drafts — real message replaces draft
+                                    if stream_stop_callback:
+                                        stream_stop_callback()
 
                                 icon = tool_icons.get(tool_name, "🔧")
                                 display_name = get_tool_display_name(tool_name)
@@ -503,11 +507,12 @@ class TelegramAgentClient:
                         event = message.event
                         event_type = event.get("type", "unknown")
                         if event_type == "content_block_start":
-                            # Reset streamer on each new text block to avoid
-                            # accumulating text across agent turns
                             cb = event.get("content_block", {})
-                            if cb.get("type") == "text" and stream_reset_callback:
-                                stream_reset_callback()
+                            cb_type = cb.get("type", "")
+                            if cb_type == "text":
+                                # Reset streamer on each new text block
+                                if stream_reset_callback:
+                                    stream_reset_callback()
                         elif event_type == "content_block_delta":
                             delta = event.get("delta", {})
                             if delta.get("type") == "text_delta" and stream_callback:

@@ -92,6 +92,12 @@ class SkillValidator:
         (r'~/.ssh', "Sensitive directory access: ~/.ssh"),
     ]
 
+    # File extensions where shell-related patterns are expected and safe
+    SHELL_SCRIPT_EXTENSIONS = {'.sh', '.bash', '.zsh', '.fish', '.ksh'}
+
+    # File extensions where backslash escaping is normal (not path traversal)
+    ESCAPED_BACKSLASH_EXTENSIONS = {'.json', '.jsonc', '.yaml', '.yml', '.toml'}
+
     def __init__(self):
         pass
 
@@ -179,7 +185,7 @@ class SkillValidator:
         return name, description, errors
 
     def _scan_file_security(self, file_path: Path, result: SkillValidationResult):
-        """Scan a file for security issues."""
+        """Scan a file for security issues, with file-type-aware checks."""
 
         # Only scan text files
         try:
@@ -189,9 +195,21 @@ class SkillValidator:
             return
 
         relative_path = file_path.name
+        suffix = file_path.suffix.lower()
+        is_shell_script = suffix in self.SHELL_SCRIPT_EXTENSIONS
+        is_data_file = suffix in self.ESCAPED_BACKSLASH_EXTENSIONS
+
+        # Shell-specific patterns to skip for .sh files
+        shell_only_messages = {
+            "Shell command substitution detected",
+            "Writing to /dev/ detected",
+        }
 
         # Check dangerous code patterns
         for pattern, message in self.DANGEROUS_CODE_PATTERNS:
+            # Skip shell-native patterns in shell scripts
+            if is_shell_script and message in shell_only_messages:
+                continue
             if re.search(pattern, content, re.IGNORECASE):
                 result.add_error(f"[{relative_path}] {message}")
 
@@ -202,6 +220,9 @@ class SkillValidator:
 
         # Check path traversal
         for pattern, message in self.PATH_TRAVERSAL_PATTERNS:
+            # Skip ..\ check in JSON/YAML files where \\ is just escape syntax
+            if is_data_file and message == "Path traversal: ..\\":
+                continue
             if re.search(pattern, content):
                 result.add_error(f"[{relative_path}] {message}")
 
