@@ -35,14 +35,16 @@ class SkillManager:
     Skills are stored in: users/<user_id>/skills/<skill-name>/
     """
 
-    def __init__(self, users_base_path: str):
+    def __init__(self, users_base_path: str, system_skills_path: str = None):
         """
         Initialize SkillManager.
 
         Args:
             users_base_path: Base path for user data directories
+            system_skills_path: Path to system-wide skills directory (.claude/skills)
         """
         self.users_base_path = Path(users_base_path)
+        self.system_skills_path = Path(system_skills_path) if system_skills_path else None
         self.validator = SkillValidator()
 
     def _get_user_skills_dir(self, user_id: int) -> Path:
@@ -187,6 +189,45 @@ class SkillManager:
         except Exception as e:
             logger.error(f"Failed to delete skill: {e}")
             return False
+
+    def share_skill(self, user_id: int, skill_name: str) -> tuple[bool, str]:
+        """Copy a user's skill to the system skills directory so all users can use it."""
+        if not self.system_skills_path:
+            return False, "System skills path not configured"
+
+        skill = self.get_skill(user_id, skill_name)
+        if not skill:
+            return False, f"Skill '{skill_name}' not found"
+
+        target_dir = self.system_skills_path / skill_name
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+
+        shutil.copytree(skill.path, target_dir)
+        logger.info(f"Shared skill '{skill_name}' from user {user_id} to system skills")
+        return True, f"Skill '{skill_name}' shared to all users"
+
+    def unshare_skill(self, skill_name: str) -> tuple[bool, str]:
+        """Remove a skill from the system skills directory."""
+        if not self.system_skills_path:
+            return False, "System skills path not configured"
+
+        target_dir = self.system_skills_path / skill_name
+        if not target_dir.exists():
+            return False, f"System skill '{skill_name}' not found"
+
+        shutil.rmtree(target_dir)
+        logger.info(f"Unshared system skill '{skill_name}'")
+        return True, f"Skill '{skill_name}' removed from system skills"
+
+    def list_system_skills(self) -> list[str]:
+        """List all system-wide skill names."""
+        if not self.system_skills_path or not self.system_skills_path.exists():
+            return []
+        return sorted([
+            d.name for d in self.system_skills_path.iterdir()
+            if d.is_dir() and (d / "SKILL.md").exists()
+        ])
 
     def get_skills_for_agent(self, user_id: int) -> str:
         """

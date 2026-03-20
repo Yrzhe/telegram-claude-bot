@@ -269,6 +269,10 @@ class HistoryManager:
         records = self._load_user_history(user_id)
         original_count = len(records)
 
+        # retention_days <= 0 means unlimited (never delete)
+        if retention_days <= 0:
+            return 0
+
         cutoff = (datetime.now() - timedelta(days=retention_days)).timestamp()
         records = [r for r in records if r.get('timestamp', 0) >= cutoff]
 

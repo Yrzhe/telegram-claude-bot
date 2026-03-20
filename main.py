@@ -308,7 +308,8 @@ async def main_async():
     schedule_manager = ScheduleManager(users_base_path=users_data_dir)
 
     # 初始化技能管理器
-    skill_manager = SkillManager(users_base_path=users_data_dir)
+    system_skills_dir = str(Path(__file__).parent / ".claude" / "skills")
+    skill_manager = SkillManager(users_base_path=users_data_dir, system_skills_path=system_skills_dir)
 
     # 创建 Bot 应用
     app = Application.builder().token(bot_token).build()

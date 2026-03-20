@@ -4,6 +4,28 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-20] Feature: Skill Sharing, Unlimited Retention, Validator Improvements
+
+### New Features
+- Admin can share skills to all users: `/skill share <name>` copies skill to system directory
+- Admin can unshare: `/skill unshare <name>` removes from system directory
+- `/skill system` lists all system-wide skills
+- Admin force install: reply `force` to bypass skill validation on failed installs
+- Unlimited retention: `/admin retention <user_id> unlimited` (or `0`) disables auto-cleanup
+
+### Bug Fixes
+- Skill validator no longer flags shell-native patterns (`$(...)`, `> /dev/null`) in `.sh` files
+- Skill validator no longer flags `..\\` as path traversal in `.json`/`.yaml` files
+
+### Modified Files
+- `bot/skill/manager.py` - Added `share_skill`, `unshare_skill`, `list_system_skills`, `skip_validation` param
+- `bot/skill/validator.py` - File-type-aware security scanning
+- `bot/handlers.py` - Added share/unshare/system subcommands, force install, unlimited retention display
+- `bot/user/history.py` - retention_days <= 0 skips cleanup
+- `main.py` - Pass system_skills_path to SkillManager
+
+---
+
 ## [2026-03-20] Fix: Skill Validator False Positives and Admin Force Install
 
 ### Bug Fixes

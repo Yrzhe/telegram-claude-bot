@@ -2147,6 +2147,38 @@ Session Statistics:
             else:
                 await update.message.reply_text(t("SKILL_NOT_FOUND", name=skill_name))
 
+        elif subcommand == "share" and is_admin(user_id):
+            if len(args) < 2:
+                await update.message.reply_text("Usage: /skill share <skill_name>")
+                return
+
+            skill_name = args[1]
+            success, msg = skill_manager.share_skill(user_id, skill_name)
+            if success:
+                # Clear all agent caches so everyone picks up the new skill
+                user_agents.clear()
+            await update.message.reply_text(msg)
+
+        elif subcommand == "unshare" and is_admin(user_id):
+            if len(args) < 2:
+                await update.message.reply_text("Usage: /skill unshare <skill_name>")
+                return
+
+            skill_name = args[1]
+            success, msg = skill_manager.unshare_skill(skill_name)
+            if success:
+                user_agents.clear()
+            await update.message.reply_text(msg)
+
+        elif subcommand == "system":
+            names = skill_manager.list_system_skills()
+            if not names:
+                await update.message.reply_text("No system skills installed.")
+            else:
+                text = f"System Skills ({len(names)}):\n\n"
+                text += "\n".join(f"- {n}" for n in names)
+                await update.message.reply_text(text)
+
         else:
             await update.message.reply_text(t("SKILL_HELP"))
 
@@ -2285,10 +2317,11 @@ Session Statistics:
                 admin_mark = "👑" if u['admin'] else ""
                 notes = f"({u['notes']})" if u['notes'] else ""
                 storage = u['storage']
+                retention_display = "Unlimited" if u['retention_days'] <= 0 else f"{u['retention_days']} {t('DAYS')}"
                 text += (
                     f"{status}{admin_mark} {u['user_id']} {notes}\n"
                     f"   {t('STORAGE_LABEL_ADMIN')}: {storage['used_formatted']} / {storage['quota_formatted']}\n"
-                    f"   {t('RETENTION_LABEL')}: {u['retention_days']} {t('DAYS')}\n"
+                    f"   {t('RETENTION_LABEL')}: {retention_display}\n"
                 )
             await update.message.reply_text(text)
 
@@ -2360,9 +2393,11 @@ Session Statistics:
         elif args[0] == 'retention' and len(args) >= 3:
             try:
                 target_user = int(args[1])
-                days = int(args[2])
+                days_str = args[2].lower()
+                days = 0 if days_str in ("0", "unlimited", "infinite", "forever", "无限") else int(days_str)
                 if user_manager.set_user_retention(target_user, days):
-                    await update.message.reply_text(t("RETENTION_SET_SUCCESS", user_id=target_user, days=days))
+                    display = "Unlimited" if days <= 0 else f"{days} days"
+                    await update.message.reply_text(f"Set user {target_user} history retention to {display}")
                 else:
                     await update.message.reply_text(t("OPERATION_FAILED"))
             except ValueError:
