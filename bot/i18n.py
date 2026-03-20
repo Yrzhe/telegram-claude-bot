@@ -148,7 +148,7 @@ The conversation summary has been saved. Your next message will start a fresh se
     ADMIN_ENABLE: str = "/admin enable <user_id> - Enable user"
     ADMIN_DISABLE: str = "/admin disable <user_id> - Disable user"
     ADMIN_NOTE: str = "/admin note <user_id> <note> - Set user note"
-    ADMIN_RETENTION: str = "/admin retention <user_id> <days> - Set history retention days"
+    ADMIN_RETENTION: str = "/admin retention <user_id> <days|unlimited> - Set history retention"
 
     ADMIN_SESSION_MGMT: str = "Session Management:"
     ADMIN_SESSIONS: str = "/admin sessions - List active sessions"
@@ -448,9 +448,14 @@ Commands:
 /skill list - List your installed skills
 /skill del <name> - Delete a skill
 /skill info <name> - View skill details
+/skill system - List system-wide shared skills
+
+Admin only:
+/skill share <name> - Share your skill to all users
+/skill unshare <name> - Remove a shared skill
 
 To install a skill:
-Upload a .zip file containing SKILL.md and reply with "install skill" or use caption "skill"
+Upload a .zip file containing SKILL.md (filename or caption must include "skill")
 
 Skill format requirements:
 - Must contain SKILL.md file
