@@ -4,6 +4,22 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-20] Feature: Skill Name Conflict Detection and YAML Multiline Fix
+
+### New Features
+- Skill name collision detection: when uploading a skill that conflicts with a system or existing user skill, bot asks to overwrite, rename, or cancel
+- Users can reply with a new name to rename the skill during install
+
+### Bug Fixes
+- Fixed YAML multiline description parsing (`>`, `|` block scalars) - skills like `here-now` now show full description instead of just `>`
+
+### Modified Files
+- `bot/skill/manager.py` - Added `_parse_yaml_description`, `check_skill_conflicts`, rename/overwrite support
+- `bot/skill/validator.py` - Handle YAML multiline description indicators
+- `bot/handlers.py` - Added conflict resolution flow with `pending_skill_conflicts`
+
+---
+
 ## [2026-03-20] Feature: Skill Sharing, Unlimited Retention, Validator Improvements
 
 ### New Features

@@ -1,6 +1,7 @@
 """Telegram Bot command handlers"""
 
 import logging
+import re
 import tempfile
 import asyncio
 import random
@@ -2082,6 +2083,7 @@ Session Statistics:
 
     # Track users waiting to confirm skill installation
     pending_skill_installs: dict[int, Path] = {}  # user_id -> zip_path
+    pending_skill_conflicts: dict[int, dict] = {}  # user_id -> {zip_path, skill_name, conflict_type}
 
     async def skill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /skill command for managing user skills"""
@@ -2165,7 +2167,7 @@ Session Statistics:
                 return
 
             skill_name = args[1]
-            success, msg = skill_manager.unshare_skill(skill_name)
+            success, msg = skill_manager.unshare_skill(skill_name, admin_user_id=user_id)
             if success:
                 user_agents.clear()
             await update.message.reply_text(msg)
@@ -2951,6 +2953,69 @@ Session Statistics:
                 await update.message.reply_text(t("SCHEDULE_PROMPT_SAVE_FAILED", task_id=task_id))
             return
 
+        # Check if user is resolving a skill name conflict
+        if skill_manager and user_id in pending_skill_conflicts:
+            conflict = pending_skill_conflicts[user_id]
+            user_reply = user_message.strip().lower()
+
+            if user_reply in ("overwrite", "覆盖", "1"):
+                pending_skill_conflicts.pop(user_id)
+                await update.message.reply_text(t("SKILL_INSTALL_START"))
+                success, message, result = skill_manager.install_skill_from_zip(
+                    user_id, conflict["zip_path"],
+                    skip_validation=conflict.get("skip_validation", False),
+                    overwrite=True
+                )
+                if success:
+                    if user_id in user_agents:
+                        del user_agents[user_id]
+                    await update.message.reply_text(
+                        t("SKILL_INSTALL_SUCCESS", name=result.skill_name, description=result.skill_description or "")
+                    )
+                else:
+                    await update.message.reply_text(f"{t('SKILL_INSTALL_FAILED')}\n\n{message}")
+                try:
+                    conflict["zip_path"].unlink()
+                except Exception:
+                    pass
+                return
+
+            elif user_reply in ("cancel", "取消", "3"):
+                pending_skill_conflicts.pop(user_id)
+                try:
+                    conflict["zip_path"].unlink()
+                except Exception:
+                    pass
+                await update.message.reply_text(t("SKILL_UPLOAD_CANCELLED"))
+                return
+
+            else:
+                # Treat as new name (rename)
+                new_name = user_reply.strip()
+                if re.match(r'^[a-zA-Z0-9_-]+$', new_name):
+                    pending_skill_conflicts.pop(user_id)
+                    await update.message.reply_text(t("SKILL_INSTALL_START"))
+                    success, message, result = skill_manager.install_skill_from_zip(
+                        user_id, conflict["zip_path"],
+                        skip_validation=conflict.get("skip_validation", False),
+                        rename_to=new_name,
+                        overwrite=True
+                    )
+                    if success:
+                        if user_id in user_agents:
+                            del user_agents[user_id]
+                        await update.message.reply_text(
+                            t("SKILL_INSTALL_SUCCESS", name=result.skill_name, description=result.skill_description or "")
+                        )
+                    else:
+                        await update.message.reply_text(f"{t('SKILL_INSTALL_FAILED')}\n\n{message}")
+                    try:
+                        conflict["zip_path"].unlink()
+                    except Exception:
+                        pass
+                    return
+                # If not a valid name, fall through to normal message processing
+
         # Check if user is confirming skill installation
         if skill_manager and user_id in pending_skill_installs:
             zip_path = pending_skill_installs[user_id]
@@ -2972,6 +3037,26 @@ Session Statistics:
                           name=result.skill_name,
                           description=result.skill_description or "")
                     )
+                elif message.startswith("CONFLICT_SYSTEM:") or message.startswith("CONFLICT_USER:"):
+                    # Name collision detected
+                    conflict_name = message.split(":", 1)[1]
+                    is_system = message.startswith("CONFLICT_SYSTEM:")
+                    conflict_type = "system skill" if is_system else "your installed skills"
+
+                    pending_skill_conflicts[user_id] = {
+                        "zip_path": zip_path,
+                        "skill_name": conflict_name,
+                        "skip_validation": False,
+                    }
+
+                    await update.message.reply_text(
+                        f"⚠️ Skill name '{conflict_name}' already exists in {conflict_type}.\n\n"
+                        f"Options:\n"
+                        f"1. Reply 'overwrite' to replace the existing skill\n"
+                        f"2. Reply a new name (e.g. 'my-{conflict_name}') to rename\n"
+                        f"3. Reply 'cancel' to abort"
+                    )
+                    return
                 else:
                     error_msg = f"{t('SKILL_INSTALL_FAILED')}\n\n{message}"
                     if result and result.errors:

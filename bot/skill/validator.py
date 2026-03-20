@@ -172,7 +172,12 @@ class SkillValidator:
         # Extract description
         desc_match = re.search(r'^description:\s*(.+)$', frontmatter, re.MULTILINE)
         if desc_match:
-            description = desc_match.group(1).strip()
+            val = desc_match.group(1).strip()
+            # Handle YAML multiline indicators (>, |) - still valid, just not inline
+            if val in ('>', '|', '>-', '|-'):
+                description = "(multiline)"  # Will be parsed properly by manager
+            else:
+                description = val.strip('"').strip("'")
         else:
             errors.append("Missing 'description' field in frontmatter")
 

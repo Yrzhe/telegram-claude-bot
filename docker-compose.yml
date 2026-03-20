@@ -20,7 +20,7 @@ services:
       # Claude conversation history persistence
       - ./claude_data:/root/.claude
       # Skills directory (easy to update frequently)
-      - ./.claude/skills:/app/.claude/skills:ro
+      - ./.claude/skills:/app/.claude/skills
     environment:
       - TZ=Asia/Shanghai
       # API keys are loaded from config.json, no need to set here

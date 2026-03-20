@@ -1,6 +1,7 @@
 """Skill Manager - Manages user-uploaded skills"""
 
 import logging
+import re
 import shutil
 import tempfile
 import zipfile
@@ -11,6 +12,28 @@ from typing import List, Optional
 from .validator import SkillValidator, SkillValidationResult
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_yaml_description(content: str) -> str:
+    """Parse description from YAML frontmatter, handling multiline syntaxes (>, |, quoted)."""
+    # Try single-line first: description: some text
+    m = re.search(r'^description:\s*([^>\|"\'\n].+)$', content, re.MULTILINE)
+    if m:
+        return m.group(1).strip().strip('"').strip("'")
+
+    # Folded (>) or literal (|) block scalar
+    m = re.search(r'^description:\s*[>\|]-?\s*\n((?:[ \t]+.+\n?)+)', content, re.MULTILINE)
+    if m:
+        lines = m.group(1).split('\n')
+        parts = [line.strip() for line in lines if line.strip()]
+        return ' '.join(parts)
+
+    # Quoted multiline
+    m = re.search(r'^description:\s*"([^"]+)"', content, re.MULTILINE | re.DOTALL)
+    if m:
+        return ' '.join(m.group(1).split())
+
+    return ""
 
 
 @dataclass
@@ -69,13 +92,7 @@ class SkillManager:
             # Parse skill info
             content = skill_md.read_text(encoding='utf-8')
             name = skill_dir.name
-            description = ""
-
-            # Extract description from frontmatter
-            import re
-            desc_match = re.search(r'^description:\s*(.+)$', content, re.MULTILINE)
-            if desc_match:
-                description = desc_match.group(1).strip()
+            description = _parse_yaml_description(content)
 
             skills.append(UserSkill(
                 name=name,
@@ -93,11 +110,32 @@ class SkillManager:
                 return skill
         return None
 
+    def check_skill_conflicts(self, user_id: int, skill_name: str) -> dict:
+        """Check if a skill name conflicts with system or user skills.
+
+        Returns:
+            {"system": bool, "user": bool} indicating where conflicts exist.
+        """
+        conflicts = {"system": False, "user": False}
+
+        # Check system skills
+        if self.system_skills_path and (self.system_skills_path / skill_name).exists():
+            conflicts["system"] = True
+
+        # Check user skills
+        user_skills_dir = self._get_user_skills_dir(user_id)
+        if (user_skills_dir / skill_name).exists():
+            conflicts["user"] = True
+
+        return conflicts
+
     def install_skill_from_zip(
         self,
         user_id: int,
         zip_path: Path,
-        skip_validation: bool = False
+        skip_validation: bool = False,
+        rename_to: str = None,
+        overwrite: bool = False
     ) -> tuple[bool, str, Optional[SkillValidationResult]]:
         """
         Install a skill from a zip file.
@@ -140,18 +178,40 @@ class SkillManager:
             if not result.is_valid and skip_validation:
                 logger.warning(f"Admin force-installing skill with validation errors for user {user_id}")
 
-            # Check if skill already exists
-            skill_name = result.skill_name
+            # Determine final skill name
+            skill_name = rename_to if rename_to else result.skill_name
             user_skills_dir = self._get_user_skills_dir(user_id)
             target_dir = user_skills_dir / skill_name
 
+            # Check conflicts
+            conflicts = self.check_skill_conflicts(user_id, skill_name)
+
+            if conflicts["system"] and not overwrite:
+                return False, f"CONFLICT_SYSTEM:{skill_name}", result
+
+            if conflicts["user"] and not overwrite:
+                return False, f"CONFLICT_USER:{skill_name}", result
+
             if target_dir.exists():
-                # Remove existing skill (update)
                 shutil.rmtree(target_dir)
                 logger.info(f"Updating existing skill: {skill_name}")
 
             # Copy skill to user's skills directory
             shutil.copytree(skill_dir, target_dir)
+
+            # If renamed, update the name in SKILL.md frontmatter
+            if rename_to and rename_to != result.skill_name:
+                skill_md = target_dir / "SKILL.md"
+                content = skill_md.read_text(encoding='utf-8')
+                content = re.sub(
+                    r'^name:\s*.+$',
+                    f'name: {rename_to}',
+                    content,
+                    count=1,
+                    flags=re.MULTILINE
+                )
+                skill_md.write_text(content, encoding='utf-8')
+
             logger.info(f"Installed skill '{skill_name}' for user {user_id}")
 
             return True, f"Skill '{skill_name}' installed successfully!", result
@@ -207,18 +267,27 @@ class SkillManager:
         logger.info(f"Shared skill '{skill_name}' from user {user_id} to system skills")
         return True, f"Skill '{skill_name}' shared to all users"
 
-    def unshare_skill(self, skill_name: str) -> tuple[bool, str]:
-        """Remove a skill from the system skills directory."""
+    def unshare_skill(self, skill_name: str, admin_user_id: int = None) -> tuple[bool, str]:
+        """Move a skill from system directory back to admin's private skills."""
         if not self.system_skills_path:
             return False, "System skills path not configured"
 
-        target_dir = self.system_skills_path / skill_name
-        if not target_dir.exists():
+        source_dir = self.system_skills_path / skill_name
+        if not source_dir.exists():
             return False, f"System skill '{skill_name}' not found"
 
-        shutil.rmtree(target_dir)
+        # Move to admin's private skills if admin_user_id provided
+        if admin_user_id:
+            user_skills_dir = self._get_user_skills_dir(admin_user_id)
+            target_dir = user_skills_dir / skill_name
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            shutil.copytree(source_dir, target_dir)
+            logger.info(f"Moved system skill '{skill_name}' to admin {admin_user_id}'s private skills")
+
+        shutil.rmtree(source_dir)
         logger.info(f"Unshared system skill '{skill_name}'")
-        return True, f"Skill '{skill_name}' removed from system skills"
+        return True, f"Skill '{skill_name}' moved from system to your private skills"
 
     def list_system_skills(self) -> list[str]:
         """List all system-wide skill names."""
