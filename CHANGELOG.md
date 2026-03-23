@@ -4,6 +4,18 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-23] Fix: Interval scheduled tasks not firing after container restart
+
+### Bug Fixes
+- Interval tasks with `start_time` (e.g., "15:00") would recalculate from today's date on every restart, causing tasks to wait until that time instead of running based on `last_run + interval`.
+- `first=0` was treated as falsy by the job queue, causing "run immediately" to actually wait a full interval. Changed to `first=1` (1 second).
+- Scheduler now calculates next run from `last_run + interval`. If overdue, runs immediately (1s). `start_time` is only used for the very first execution when no `last_run` exists.
+
+### Modified Files
+- `bot/schedule/manager.py` - Rewrote interval task scheduling logic with last_run-based calculation
+
+---
+
 ## [2026-03-23] Optimization: User Skills Loading and Isolation
 
 ### Changes

@@ -860,48 +860,64 @@ class ScheduleManager:
                 logger.error(f"Invalid interval_minutes for task {task.task_id}")
                 return
 
+            interval_seconds = task.interval_minutes * 60
+
             # Calculate first execution time
+            # Priority: last_run + interval > start_time > immediate (after one interval)
             first_run = None
-            if task.start_time:
+            now = datetime.now(tz)
+
+            # If task has run before, calculate next run from last_run
+            if task.last_run:
                 try:
-                    # Try parsing as full datetime (YYYY-MM-DDTHH:MM)
+                    last_run_dt = datetime.fromisoformat(task.last_run)
+                    if last_run_dt.tzinfo is None:
+                        last_run_dt = last_run_dt.replace(tzinfo=tz)
+                    next_run = last_run_dt + timedelta(minutes=task.interval_minutes)
+                    if next_run <= now:
+                        # Overdue - run immediately (use 1s to avoid falsy 0)
+                        first_run = 1
+                        logger.debug(f"Interval task {task.task_id}: overdue (last_run={task.last_run}), running immediately")
+                    else:
+                        first_run = (next_run - now).total_seconds()
+                        logger.debug(f"Interval task {task.task_id}: next run in {first_run:.0f}s (based on last_run)")
+                except Exception as e:
+                    logger.warning(f"Failed to parse last_run '{task.last_run}' for task {task.task_id}: {e}")
+
+            # If no last_run, use start_time for first execution only
+            if first_run is None and task.start_time:
+                try:
                     if "T" in task.start_time or "-" in task.start_time:
                         if "T" in task.start_time:
-                            first_run = datetime.strptime(task.start_time, "%Y-%m-%dT%H:%M")
+                            parsed = datetime.strptime(task.start_time, "%Y-%m-%dT%H:%M")
                         else:
-                            # YYYY-MM-DD HH:MM format
-                            first_run = datetime.strptime(task.start_time, "%Y-%m-%d %H:%M")
-                        first_run = first_run.replace(tzinfo=tz)
+                            parsed = datetime.strptime(task.start_time, "%Y-%m-%d %H:%M")
+                        parsed = parsed.replace(tzinfo=tz)
+                        if parsed <= now:
+                            first_run = 1  # Start time passed, run immediately
+                        else:
+                            first_run = (parsed - now).total_seconds()
                     else:
-                        # Try parsing as time only (HH:MM) - use today or tomorrow
+                        # Time-only (HH:MM)
                         parts = task.start_time.split(":")
                         start_hour, start_minute = int(parts[0]), int(parts[1])
-                        now = datetime.now(tz)
-                        first_run = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-                        # If time has passed today, schedule for tomorrow
-                        if first_run <= now:
-                            first_run += timedelta(days=1)
-
-                    # Check if start time has passed
-                    now = datetime.now(tz)
-                    if first_run <= now:
-                        logger.debug(f"Interval task {task.task_id} start_time has passed, starting immediately")
-                        first_run = None
+                        target = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+                        if target <= now:
+                            first_run = 1  # Already passed today, run immediately
+                        else:
+                            first_run = (target - now).total_seconds()
                 except Exception as e:
                     logger.warning(f"Failed to parse start_time '{task.start_time}' for task {task.task_id}: {e}")
-                    first_run = None
 
             self._job_queue.run_repeating(
                 job_callback,
-                interval=task.interval_minutes * 60,  # Convert to seconds
+                interval=interval_seconds,
                 first=first_run,
                 name=job_name,
                 data={"user_id": user_id, "task_id": task.task_id}
             )
-            if first_run:
-                logger.debug(f"Scheduled interval task {task.task_id} for user {user_id} starting at {first_run}, every {task.interval_minutes} minutes")
-            else:
-                logger.debug(f"Scheduled interval task {task.task_id} for user {user_id} every {task.interval_minutes} minutes (immediate start)")
+            first_desc = f"in {first_run:.0f}s" if isinstance(first_run, (int, float)) and first_run > 1 else "immediately" if isinstance(first_run, (int, float)) else f"after {task.interval_minutes}min"
+            logger.info(f"Scheduled interval task {task.task_id} for user {user_id}: every {task.interval_minutes}min, first run {first_desc}")
 
         elif schedule_type == SCHEDULE_TYPE_ONCE:
             # One-time scheduling
