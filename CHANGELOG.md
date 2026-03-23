@@ -4,6 +4,34 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-23] Optimization: User Skills Loading and Isolation
+
+### Changes
+- Custom skills now inject only a catalog (name + description) into the system prompt instead of truncated full content. Full skill content is loaded on-demand via the Skill tool.
+- Added per-user `.claude/skills/` symlinks in user's data directory so the Skill tool can discover custom skills via the SDK's "project" setting source, with full per-user isolation.
+- Scheduled tasks now also set up skill symlinks and include skills catalog, so custom skills are accessible in scheduled task execution.
+
+### Modified Files
+- `bot/skill/manager.py` - Refactored `get_skills_for_agent()` to catalog-only, added `setup_skill_symlinks()` method
+- `bot/handlers.py` - Call `setup_skill_symlinks()` before agent creation
+- `main.py` - Call `setup_skill_symlinks()` and include skills catalog in scheduled task execution
+
+---
+
+## [2026-03-20] Feature: Agent Processing Interrupt Support
+
+### New Features
+- Users can send "stop", "/stop", or "停" to interrupt agent processing mid-task
+- Sending a new message while agent is processing will interrupt current task and process the new message instead
+- Uses Claude Agent SDK's `client.interrupt()` for clean shutdown (session context preserved for resume)
+- Added `/stop` command as a shortcut
+
+### Modified Files
+- `bot/agent/client.py` - Added `_active_client` reference, `interrupt()` method, `cancel_event` parameter to `process_message()`
+- `bot/agent/message_handler.py` - Added `_active_agent` reference, stop command detection, `_interrupt_agent()` helper
+- `bot/handlers.py` - Pass `cancel_event` and `_active_agent` to processing, added `/stop` command handler, interrupt cleanup
+- `bot/i18n.py` - Added `AGENT_INTERRUPTED` and `NOTHING_TO_STOP` strings
+
 ## [2026-03-20] Feature: Skill Name Conflict Detection and YAML Multiline Fix
 
 ### New Features

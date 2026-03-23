@@ -552,6 +552,8 @@ def setup_handlers(
         custom_skills_content = ""
         if skill_manager:
             custom_skills_content = skill_manager.get_skills_for_agent(user_id)
+            # Set up symlinks so Skill tool can find user's custom skills
+            skill_manager.setup_skill_symlinks(user_id, user_data_path)
 
         # Create delegate callback for Sub Agent tasks
         async def delegate_callback(description: str, prompt: str) -> str | None:
@@ -994,6 +996,19 @@ def setup_handlers(
 
         await update.message.reply_text(text)
 
+    async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Stop current agent processing"""
+        user_id = update.effective_user.id
+        if not can_access(user_id):
+            return
+
+        msg_handler = await get_message_handler(user_id)
+        if msg_handler.is_busy:
+            msg_handler.cancel_current()
+            await update.message.reply_text(f"🛑 {t('AGENT_INTERRUPTED')}")
+        else:
+            await update.message.reply_text(t("NOTHING_TO_STOP"))
+
     async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start new session with conversation summary"""
         user_id = update.effective_user.id
@@ -1025,7 +1040,7 @@ def setup_handlers(
                 # 运行记忆分析（后处理）
                 try:
                     from .memory import run_memory_analysis
-                    user_dir = user_manager.get_user_directory(user_id)
+                    user_dir = user_manager.get_user_data_path(user_id)
                     _, memory_notification = await run_memory_analysis(
                         user_id=user_id,
                         user_data_dir=user_dir,
@@ -1275,7 +1290,7 @@ Session Statistics:
         try:
             from .memory import run_memory_analysis
 
-            user_dir = user_manager.get_user_directory(user_id)
+            user_dir = user_manager.get_user_data_path(user_id)
             _, notification = await run_memory_analysis(
                 user_id=user_id,
                 user_data_dir=user_dir,
@@ -1386,7 +1401,7 @@ Session Statistics:
             # Run memory analysis in background to extract important info from conversation
             try:
                 from .memory import run_memory_analysis
-                user_dir = user_manager.get_user_directory(user_id)
+                user_dir = user_manager.get_user_data_path(user_id)
 
                 # Run analysis (this uses a separate Claude call to extract memories)
                 saved_memories, memory_notification = await run_memory_analysis(
@@ -3126,13 +3141,13 @@ Session Statistics:
 
         # Get message handler for this user (handles 10-second merge window)
         msg_handler = await get_message_handler(user_id)
-        
+
         async def send_progress():
             return await update.message.reply_text(f"🤔 {t('PROCESSING')}")
-        
+
         async def do_process(text, upd, ctx, thinking_msg):
-            await _process_user_message(text, upd, ctx, thinking_msg, user_id)
-        
+            await _process_user_message(text, upd, ctx, thinking_msg, user_id, msg_handler)
+
         await msg_handler.handle_message(
             text=user_message,
             update=update,
@@ -3141,7 +3156,7 @@ Session Statistics:
             send_progress=send_progress
         )
     
-    async def _process_user_message(user_message: str, update: Update, context: ContextTypes.DEFAULT_TYPE, thinking_msg, user_id: int):
+    async def _process_user_message(user_message: str, update: Update, context: ContextTypes.DEFAULT_TYPE, thinking_msg, user_id: int, msg_handler=None):
         """Internal function to process user message"""
 
         # Start typing indicator
@@ -3245,6 +3260,12 @@ Session Statistics:
             # Create draft streamer for progressive text display
             streamer = DraftStreamer(thinking_msg)
 
+            # Set active agent on message handler for interrupt support
+            cancel_event = None
+            if msg_handler:
+                msg_handler._active_agent = agent
+                cancel_event = msg_handler._cancel_requested
+
             # Process message (with progress callback and stream callback)
             response = await agent.process_message(
                 message_to_send,
@@ -3253,12 +3274,36 @@ Session Statistics:
                 stream_callback=streamer.append,
                 stream_reset_callback=streamer.reset,
                 stream_stop_callback=streamer.stop,
+                cancel_event=cancel_event,
             )
 
             # Flush any remaining draft before sending final message
             if not response.message_sent:
                 await streamer.flush()
             await streamer.clear()
+
+            # Check if processing was interrupted by user
+            was_interrupted = msg_handler and msg_handler.is_cancelled()
+            if was_interrupted:
+                logger.info(f"User {user_id}: Processing was interrupted by user")
+                # Still save session ID if available (for resume)
+                if response.session_id:
+                    usage_stats = {
+                        'input_tokens': response.input_tokens,
+                        'output_tokens': response.output_tokens,
+                        'cost_usd': response.cost_usd,
+                        'turns': response.num_turns
+                    }
+                    update_usage_stats(user_id, response.session_id, usage_stats)
+                # Clean up thinking message
+                try:
+                    await thinking_msg.delete()
+                except Exception:
+                    pass
+                # Clear active agent reference
+                if msg_handler:
+                    msg_handler._active_agent = None
+                return
 
             # Check if session not found error OR silent failure (is_error with 0 turns)
             # Silent failure happens when SDK returns is_error=True but error_message=None
@@ -3448,6 +3493,9 @@ Session Statistics:
         finally:
             # Always stop typing indicator, even on CancelledError
             await typing.stop()
+            # Clear active agent reference
+            if msg_handler:
+                msg_handler._active_agent = None
 
     async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle voice messages - transcribe and pass to Agent"""
@@ -4362,6 +4410,7 @@ Session Statistics:
     app.add_handler(CommandHandler("session", session_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("new", new_session_command))
+    app.add_handler(CommandHandler("stop", stop_command))
     app.add_handler(CommandHandler("compact", compact_command))
     app.add_handler(CommandHandler("storage", storage_command))
     app.add_handler(CommandHandler("ls", ls))

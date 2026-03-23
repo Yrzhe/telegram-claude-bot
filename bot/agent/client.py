@@ -1,5 +1,6 @@
 """Agent client wrapper - manages interaction with Claude Agent"""
 
+import asyncio
 import logging
 from typing import Callable, Awaitable, Any, Dict, Tuple, Optional
 from pathlib import Path
@@ -131,6 +132,9 @@ class TelegramAgentClient:
         else:
             self.max_turns = 15 if is_sub_agent else 30
 
+        # Active client reference for interrupt support
+        self._active_client: Optional[ClaudeSDKClient] = None
+
         # Initialize file tracker for tracking new files during task execution
         self.file_tracker = FileTracker(self.working_directory)
 
@@ -178,6 +182,22 @@ class TelegramAgentClient:
         """No-op file sender for Sub Agents"""
         logger.debug(f"Sub Agent file (not sent to user): {path}")
         return True
+
+    async def interrupt(self) -> bool:
+        """Interrupt the currently active agent processing.
+
+        Returns True if interrupt was sent, False if no active client.
+        """
+        client = self._active_client
+        if client:
+            try:
+                await client.interrupt()
+                logger.info(f"User {self.user_id}: Agent interrupted")
+                return True
+            except Exception as e:
+                logger.warning(f"User {self.user_id}: Interrupt failed: {e}")
+                return False
+        return False
 
     def _is_path_safe(self, path_str: str) -> bool:
         """Check if path is within the user's working directory or skills directory."""
@@ -415,7 +435,8 @@ class TelegramAgentClient:
         stream_stop_callback: Callable[[], None] | None = None,
         context_id: str | None = None,
         custom_system_prompt: str | None = None,
-        track_files: bool = True
+        track_files: bool = True,
+        cancel_event: asyncio.Event | None = None
     ) -> AgentResponse:
         """
         Process user message.
@@ -429,6 +450,7 @@ class TelegramAgentClient:
             context_id: Context ID for task tracking
             custom_system_prompt: Custom system prompt (for Sub Agents)
             track_files: Whether to track and send new files after completion
+            cancel_event: Event to signal cancellation (checked after each message)
 
         Returns:
             AgentResponse with response text and session ID
@@ -473,9 +495,19 @@ class TelegramAgentClient:
 
         try:
             async with ClaudeSDKClient(options=options) as client:
+                self._active_client = client
                 await client.query(user_message)
 
                 async for message in client.receive_response():
+                    # Check for cancellation after each message
+                    if cancel_event and cancel_event.is_set():
+                        logger.info(f"User {self.user_id}: Cancel event detected, interrupting agent")
+                        try:
+                            await client.interrupt()
+                        except Exception as e:
+                            logger.warning(f"Interrupt call failed: {e}")
+                        break
+
                     if isinstance(message, AssistantMessage):
                         for block in message.content:
                             if isinstance(block, TextBlock):
@@ -552,6 +584,8 @@ class TelegramAgentClient:
                     await self.send_message_callback(t("PROCESS_FAILED", error=str(e)))
                 except Exception:
                     pass
+        finally:
+            self._active_client = None
 
         # Send tracked files after processing (main agent only)
         if track_files and not self.is_sub_agent:

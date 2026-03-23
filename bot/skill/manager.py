@@ -300,36 +300,78 @@ class SkillManager:
 
     def get_skills_for_agent(self, user_id: int) -> str:
         """
-        Get skills content formatted for Agent system prompt.
+        Get skills catalog formatted for Agent system prompt.
 
-        Returns a string that can be appended to the system prompt.
+        Only injects skill name + description as a catalog.
+        Full skill content is loaded on-demand via the Skill tool.
         """
         skills = self.get_user_skills(user_id)
         if not skills:
             return ""
 
         lines = ["\n\n## User Custom Skills\n"]
-        lines.append("The user has installed the following custom skills:\n")
+        lines.append("The user has installed the following custom skills.")
+        lines.append("Use the Skill tool to load full content when needed.\n")
 
         for skill in skills:
-            lines.append(f"### {skill.name}")
-            lines.append(f"{skill.description}\n")
-
-            # Include skill content (truncated if too long)
-            content = skill.get_content()
-            # Remove frontmatter for display
-            import re
-            content = re.sub(r'^---\s*\n.*?\n---\s*\n', '', content, flags=re.DOTALL)
-
-            # Replace common skill path placeholders with actual path
-            actual_path = str(skill.path)
-            content = content.replace(f"~/.claude/skills/{skill.name}/", f"{actual_path}/")
-            content = content.replace(f"~/.claude/skills/{skill.name}", actual_path)
-
-            if len(content) > 2000:
-                content = content[:2000] + "\n...(truncated)"
-
-            lines.append(content)
-            lines.append("")
+            lines.append(f"- **{skill.name}**: {skill.description}")
 
         return "\n".join(lines)
+
+    def setup_skill_symlinks(self, user_id: int, user_data_path: Path) -> int:
+        """
+        Create .claude/skills/ symlinks in the user's data directory (agent cwd).
+
+        This allows the Claude Agent SDK's "project" setting source to discover
+        user-specific skills via the Skill tool, with per-user isolation.
+
+        Structure created:
+            {user_data_path}/.claude/skills/{skill_name} -> ../../skills/{skill_name}
+
+        Args:
+            user_id: User ID
+            user_data_path: User's data directory (agent working directory / cwd)
+
+        Returns:
+            Number of skills linked
+        """
+        skills = self.get_user_skills(user_id)
+        claude_skills_dir = user_data_path / ".claude" / "skills"
+        claude_skills_dir.mkdir(parents=True, exist_ok=True)
+
+        # Remove stale symlinks (skills that were uninstalled)
+        if claude_skills_dir.exists():
+            for existing in claude_skills_dir.iterdir():
+                if existing.is_symlink():
+                    # Remove if target no longer exists or skill was uninstalled
+                    if not existing.resolve().exists():
+                        existing.unlink()
+                        logger.debug(f"Removed stale skill symlink: {existing.name}")
+
+        linked = 0
+        for skill in skills:
+            link_path = claude_skills_dir / skill.name
+            target = skill.path
+
+            # Skip if symlink already points to the correct target
+            if link_path.is_symlink() and link_path.resolve() == target.resolve():
+                linked += 1
+                continue
+
+            # Remove existing (broken symlink or directory)
+            if link_path.exists() or link_path.is_symlink():
+                if link_path.is_symlink():
+                    link_path.unlink()
+                else:
+                    shutil.rmtree(link_path)
+
+            try:
+                link_path.symlink_to(target)
+                linked += 1
+            except OSError as e:
+                logger.warning(f"Failed to symlink skill '{skill.name}' for user {user_id}: {e}")
+
+        if linked > 0:
+            logger.debug(f"User {user_id}: {linked} skill symlinks in {claude_skills_dir}")
+
+        return linked

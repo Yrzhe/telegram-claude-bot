@@ -355,6 +355,10 @@ async def main_async():
             user_data_path = user_manager.get_user_data_path(user_id)
             env_vars = user_manager.get_user_env_vars(user_id)
 
+            # Ensure user's custom skills are accessible via Skill tool
+            if skill_manager:
+                skill_manager.setup_skill_symlinks(user_id, user_data_path)
+
             # Add API config to env vars
             agent_env_vars = env_vars.copy()
             if api_config.get("api_key"):
@@ -440,6 +444,11 @@ _Task is running..._
                 send_file_callback=send_file
             )
 
+            # Get custom skills catalog for the scheduled task agent
+            custom_skills_text = ""
+            if skill_manager:
+                custom_skills_text = skill_manager.get_skills_for_agent(user_id)
+
             sub_system_prompt = f"""You are executing a scheduled task: {task_name}
 
 RULES:
@@ -449,7 +458,7 @@ RULES:
 4. Your final response will be shown to the user as the task completion message - keep it concise and informative
 5. Be efficient and complete the task without unnecessary steps
 6. If the task involves reminding about specific items (commands, links, etc.), ALWAYS include those specific details in your response
-
+{custom_skills_text}
 Task instructions:
 {prompt}
 """

@@ -54,6 +54,9 @@ class NonBlockingMessageHandler:
         self._processing_task: Optional[asyncio.Task] = None
         self._cancel_requested = asyncio.Event()
 
+        # Active agent reference for interrupt support
+        self._active_agent: Any = None
+
         # Message queue for when Main Agent is busy
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._queue_processor_task: Optional[asyncio.Task] = None
@@ -65,6 +68,9 @@ class NonBlockingMessageHandler:
     @property
     def is_busy(self) -> bool:
         return self._state != UserState.IDLE
+
+    # Stop commands that trigger immediate interruption
+    STOP_COMMANDS = {"stop", "停", "停止", "/stop"}
 
     async def handle_message(
         self,
@@ -90,8 +96,20 @@ class NonBlockingMessageHandler:
                 # Within merge window - merge messages
                 await self._merge_message(text)
             elif self._state == UserState.PROCESSING:
-                # Main Agent is busy - queue the message
-                await self._queue_message(text, update, context)
+                # Check if this is a stop command
+                if text.strip().lower() in self.STOP_COMMANDS:
+                    logger.info(f"User {self.user_id}: Stop command received, interrupting")
+                    self._interrupt_agent()
+                    try:
+                        from ..i18n import t
+                        await update.message.reply_text(f"🛑 {t('AGENT_INTERRUPTED')}")
+                    except Exception as e:
+                        logger.warning(f"Failed to send stop notification: {e}")
+                else:
+                    # New message while processing - interrupt and queue for processing
+                    logger.info(f"User {self.user_id}: New message during processing, interrupting and queuing")
+                    self._interrupt_agent()
+                    await self._queue_message(text, update, context)
 
     async def _start_merge_window(self, text: str, update: Any, context: Any) -> None:
         """Start the 10-second merge window"""
@@ -158,12 +176,13 @@ class NonBlockingMessageHandler:
         })
         logger.info(f"User {self.user_id}: Message queued (queue size: {self._message_queue.qsize()})")
 
-        # Notify user that message was queued
-        try:
-            from ..i18n import t
-            await update.message.reply_text(f"📥 {t('AGENT_BUSY')}")
-        except Exception as e:
-            logger.warning(f"Failed to send queue notification: {e}")
+        # Notify user that message was queued (skip if we just interrupted)
+        if not self._cancel_requested.is_set():
+            try:
+                from ..i18n import t
+                await update.message.reply_text(f"📥 {t('AGENT_BUSY')}")
+            except Exception as e:
+                logger.warning(f"Failed to send queue notification: {e}")
 
         # Start queue processor if not running
         if self._queue_processor_task is None or self._queue_processor_task.done():
@@ -225,9 +244,25 @@ class NonBlockingMessageHandler:
                         first_context
                     )
 
+    def _interrupt_agent(self) -> None:
+        """Signal cancellation and interrupt the active agent."""
+        self._cancel_requested.set()
+        # Interrupt agent SDK client for clean shutdown
+        if self._active_agent:
+            try:
+                asyncio.create_task(self._active_agent.interrupt())
+            except Exception as e:
+                logger.debug(f"Agent interrupt error: {e}")
+
     def cancel_current(self) -> None:
         """Cancel current processing"""
         self._cancel_requested.set()
+        # Interrupt agent SDK client
+        if self._active_agent:
+            try:
+                asyncio.create_task(self._active_agent.interrupt())
+            except Exception as e:
+                logger.debug(f"Agent interrupt error: {e}")
         if self._window_task and not self._window_task.done():
             self._window_task.cancel()
         if self._processing_task and not self._processing_task.done():

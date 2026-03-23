@@ -347,6 +347,8 @@ Please help the user process this file. If it's a document (PDF, Word, TXT, etc.
     DELEGATE_REVIEW_TASK_CREATED: str = "Review task created (ID: {task_id}): {description}\n\nThis task will be automatically reviewed after completion. You'll receive progress updates."
     DELEGATE_TASK_LIMIT: str = "Cannot create more background tasks (limit: {limit})"
     AGENT_BUSY: str = "I'm currently processing. Your message has been queued and will be handled shortly."
+    AGENT_INTERRUPTED: str = "Processing stopped."
+    NOTHING_TO_STOP: str = "Nothing is being processed right now."
     TASK_CANCELLED: str = "Previous task cancelled due to new message"
     TASK_COMPLETED: str = "Background task completed"
     RESULT_TRUNCATED: str = "Result truncated, check files for full content"

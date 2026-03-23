@@ -137,10 +137,11 @@ async def classify_with_haiku(
     recent_topics: list[dict],
     archived_topics: list[dict],
     api_key: str,
-    base_url: Optional[str] = None
+    base_url: Optional[str] = None,
+    model: str = "claude-haiku-4-5-20251001"
 ) -> ClassificationResult:
     """
-    Tier 2: Use Haiku for classification.
+    Tier 2: Use a fast model for classification.
 
     Args:
         message: User message to classify
@@ -204,7 +205,7 @@ Rules:
         client = anthropic.Anthropic(**client_args)
 
         response = client.messages.create(
-            model="claude-3-5-haiku-20241022",
+            model=model,
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}]
         )
