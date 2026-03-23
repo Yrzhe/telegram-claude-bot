@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+from contextvars import ContextVar
 from typing import Any, Callable, Awaitable, Optional
 from pathlib import Path
 from claude_agent_sdk import tool
@@ -127,18 +128,21 @@ def clean_markdown_for_telegram(text: str) -> str:
     """
     return convert_to_markdown_v2(text)
 
-# Global config storage (not accessible by Agent)
+# Global config (shared, not per-user)
 _mistral_api_key: str | None = None
 _openai_api_key: str | None = None
-_working_directory: Path | None = None
-_delegate_callback: Optional[Callable[[str, str], Awaitable[Optional[str]]]] = None
-_delegate_review_callback: Optional[Callable[[str, str, str], Awaitable[Optional[str]]]] = None
 _max_sub_agents: int = 10
-_schedule_manager: Any = None
-_current_user_id: int | None = None
-_task_manager: Any = None
-_custom_command_manager: Any = None
-_admin_user_ids: list[int] = []
+
+# Per-request config using ContextVar for async-safe user isolation.
+# Prevents race conditions when multiple users interact concurrently.
+_working_directory: ContextVar[Path | None] = ContextVar('working_directory', default=None)
+_delegate_callback: ContextVar[Optional[Callable]] = ContextVar('delegate_callback', default=None)
+_delegate_review_callback: ContextVar[Optional[Callable]] = ContextVar('delegate_review_callback', default=None)
+_schedule_manager: ContextVar[Any] = ContextVar('schedule_manager', default=None)
+_current_user_id: ContextVar[int | None] = ContextVar('current_user_id', default=None)
+_task_manager: ContextVar[Any] = ContextVar('task_manager', default=None)
+_custom_command_manager: ContextVar[Any] = ContextVar('custom_command_manager', default=None)
+_admin_user_ids: ContextVar[list[int]] = ContextVar('admin_user_ids', default=[])
 
 
 def set_tool_config(
@@ -154,22 +158,21 @@ def set_tool_config(
     custom_command_manager: Any = None,
     admin_user_ids: list[int] | None = None
 ):
-    """Set tool config (call before creating tools)"""
-    global _mistral_api_key, _openai_api_key, _working_directory, _delegate_callback, _delegate_review_callback, _max_sub_agents
-    global _schedule_manager, _current_user_id, _task_manager, _custom_command_manager, _admin_user_ids
+    """Set tool config (call before creating tools). Uses ContextVar for per-request isolation."""
+    global _mistral_api_key, _openai_api_key, _max_sub_agents
     _mistral_api_key = mistral_api_key
     _openai_api_key = openai_api_key
     if working_directory:
-        _working_directory = Path(working_directory)
-    _delegate_callback = delegate_callback
-    _delegate_review_callback = delegate_review_callback
+        _working_directory.set(Path(working_directory))
+    _delegate_callback.set(delegate_callback)
+    _delegate_review_callback.set(delegate_review_callback)
     _max_sub_agents = max_sub_agents
-    _schedule_manager = schedule_manager
-    _current_user_id = user_id
-    _task_manager = task_manager
-    _custom_command_manager = custom_command_manager
-    _admin_user_ids = admin_user_ids or []
-    logger.info(f"set_tool_config: schedule_manager={schedule_manager is not None}, task_manager={task_manager is not None}, custom_command_manager={custom_command_manager is not None}, user_id={user_id}, is_admin={user_id in _admin_user_ids}")
+    _schedule_manager.set(schedule_manager)
+    _current_user_id.set(user_id)
+    _task_manager.set(task_manager)
+    _custom_command_manager.set(custom_command_manager)
+    _admin_user_ids.set(admin_user_ids or [])
+    logger.info(f"set_tool_config: schedule_manager={schedule_manager is not None}, task_manager={task_manager is not None}, custom_command_manager={custom_command_manager is not None}, user_id={user_id}, is_admin={user_id in (admin_user_ids or [])}")
 
 
 def is_path_within_working_dir(path: Path) -> bool:
@@ -179,11 +182,11 @@ def is_path_within_working_dir(path: Path) -> bool:
     Uses relative_to() which is more secure than startswith() string comparison.
     Handles edge cases like /app/users/123 vs /app/users/1234.
     """
-    if not _working_directory:
+    if not _working_directory.get():
         return False
     try:
         resolved_path = path.resolve()
-        resolved_working = _working_directory.resolve()
+        resolved_working = _working_directory.get().resolve()
         resolved_path.relative_to(resolved_working)
         return True
     except ValueError:
@@ -484,11 +487,11 @@ def create_telegram_tools(
             from mistralai import Mistral, DocumentURLChunk
 
             # Parse paths
-            if _working_directory:
-                full_pdf_path = _working_directory / pdf_path
+            if _working_directory.get():
+                full_pdf_path = _working_directory.get() / pdf_path
                 if not output_dir:
                     output_dir = f"documents/{Path(pdf_path).stem}"
-                full_output_dir = _working_directory / output_dir
+                full_output_dir = _working_directory.get() / output_dir
             else:
                 full_pdf_path = Path(pdf_path)
                 full_output_dir = Path(output_dir) if output_dir else Path(f"output/{Path(pdf_path).stem}")
@@ -608,7 +611,7 @@ def create_telegram_tools(
                 "is_error": True
             }
 
-        if not _working_directory:
+        if not _working_directory.get():
             return {
                 "content": [{"type": "text", "text": t("ERR_WORKING_DIR_NOT_SET")}],
                 "is_error": True
@@ -619,7 +622,7 @@ def create_telegram_tools(
             if Path(file_path).is_absolute():
                 full_path = Path(file_path)
             else:
-                full_path = _working_directory / file_path
+                full_path = _working_directory.get() / file_path
 
             # Security check: ensure path is within working directory
             if not is_path_within_working_dir(full_path):
@@ -678,7 +681,7 @@ def create_telegram_tools(
                 "is_error": True
             }
 
-        if not _working_directory:
+        if not _working_directory.get():
             return {
                 "content": [{"type": "text", "text": t("ERR_WORKING_DIR_NOT_SET")}],
                 "is_error": True
@@ -689,7 +692,7 @@ def create_telegram_tools(
             if Path(folder_path).is_absolute():
                 full_folder_path = Path(folder_path)
             else:
-                full_folder_path = _working_directory / folder_path
+                full_folder_path = _working_directory.get() / folder_path
 
             # Security check: ensure path is within working directory
             if not is_path_within_working_dir(full_folder_path):
@@ -721,7 +724,7 @@ def create_telegram_tools(
             if Path(output_path).is_absolute():
                 full_output_path = Path(output_path)
             else:
-                full_output_path = _working_directory / output_path
+                full_output_path = _working_directory.get() / output_path
 
             # Security check for output path
             if not is_path_within_working_dir(full_output_path):
@@ -754,7 +757,7 @@ def create_telegram_tools(
                 size_str = f"{zip_size / (1024 * 1024):.1f} MB"
 
             # Return relative path
-            rel_output = str(full_output_path.relative_to(_working_directory))
+            rel_output = str(full_output_path.relative_to(_working_directory.get()))
 
             logger.info(f"Compressed folder: {folder_path} -> {rel_output} ({file_count} files, {size_str})")
 
@@ -785,14 +788,14 @@ def create_telegram_tools(
                 "is_error": True
             }
 
-        if not _delegate_callback:
+        if not _delegate_callback.get():
             return {
                 "content": [{"type": "text", "text": "Error: Task delegation not available"}],
                 "is_error": True
             }
 
         try:
-            task_id = await _delegate_callback(description, prompt)
+            task_id = await _delegate_callback.get()(description, prompt)
             
             if task_id:
                 logger.info(f"Delegated task {task_id}: {description[:50]}...")
@@ -855,14 +858,14 @@ Example review_criteria:
                 "is_error": True
             }
 
-        if not _delegate_review_callback:
+        if not _delegate_review_callback.get():
             return {
                 "content": [{"type": "text", "text": "Error: Review task delegation not available"}],
                 "is_error": True
             }
 
         try:
-            task_id = await _delegate_review_callback(description, prompt, review_criteria)
+            task_id = await _delegate_review_callback.get()(description, prompt, review_criteria)
 
             if task_id:
                 logger.info(f"Delegated review task {task_id}: {description[:50]}...")
@@ -897,14 +900,14 @@ Example review_criteria:
                 "is_error": True
             }
 
-        if not _task_manager:
+        if not _task_manager.get():
             return {
                 "content": [{"type": "text", "text": "Error: Task manager not available"}],
                 "is_error": True
             }
 
         try:
-            task = _task_manager.get_task(task_id)
+            task = _task_manager.get().get_task(task_id)
             if not task:
                 return {
                     "content": [{"type": "text", "text": f"Task '{task_id}' not found"}],
@@ -942,14 +945,14 @@ Example review_criteria:
     )
     async def list_tasks(args: dict[str, Any]) -> dict[str, Any]:
         """List all Sub Agent tasks"""
-        if not _task_manager:
+        if not _task_manager.get():
             return {
                 "content": [{"type": "text", "text": "Error: Task manager not available"}],
                 "is_error": True
             }
 
         try:
-            tasks = _task_manager.get_all_tasks()
+            tasks = _task_manager.get().get_all_tasks()
 
             if not tasks:
                 return {
@@ -987,16 +990,16 @@ Example review_criteria:
     )
     async def schedule_list(args: dict[str, Any]) -> dict[str, Any]:
         """List all scheduled tasks"""
-        logger.info(f"schedule_list called: _schedule_manager={_schedule_manager is not None}, _current_user_id={_current_user_id}")
-        if not _schedule_manager or not _current_user_id:
+        logger.info(f"schedule_list called: _schedule_manager.get()={_schedule_manager.get() is not None}, _current_user_id.get()={_current_user_id.get()}")
+        if not _schedule_manager.get() or not _current_user_id.get():
             return {
                 "content": [{"type": "text", "text": "Schedule feature not available"}],
                 "is_error": True
             }
 
         try:
-            tasks = _schedule_manager.get_tasks(_current_user_id)
-            timezone = _schedule_manager.get_user_timezone(_current_user_id)
+            tasks = _schedule_manager.get().get_tasks(_current_user_id.get())
+            timezone = _schedule_manager.get().get_user_timezone(_current_user_id.get())
 
             if not tasks:
                 return {
@@ -1013,8 +1016,8 @@ Example review_criteria:
                 else:
                     status = "🔴 Disabled"
 
-                schedule_str = _schedule_manager.format_schedule_type(task)
-                run_count_str = _schedule_manager.format_run_count(task)
+                schedule_str = _schedule_manager.get().format_schedule_type(task)
+                run_count_str = _schedule_manager.get().format_run_count(task)
                 last_run = task.last_run[:16].replace("T", " ") if task.last_run else "Never"
 
                 output += f"- {task.task_id}\n"
@@ -1042,7 +1045,7 @@ Example review_criteria:
         """Get details of a scheduled task"""
         task_id = args.get("task_id", "")
 
-        if not _schedule_manager or not _current_user_id:
+        if not _schedule_manager.get() or not _current_user_id.get():
             return {
                 "content": [{"type": "text", "text": "Schedule feature not available"}],
                 "is_error": True
@@ -1055,15 +1058,15 @@ Example review_criteria:
             }
 
         try:
-            task = _schedule_manager.get_task(_current_user_id, task_id)
+            task = _schedule_manager.get().get_task(_current_user_id.get(), task_id)
             if not task:
                 return {
                     "content": [{"type": "text", "text": f"Task '{task_id}' not found"}],
                     "is_error": True
                 }
 
-            prompt = _schedule_manager.get_task_prompt(_current_user_id, task_id)
-            timezone = _schedule_manager.get_user_timezone(_current_user_id)
+            prompt = _schedule_manager.get().get_task_prompt(_current_user_id.get(), task_id)
+            timezone = _schedule_manager.get().get_user_timezone(_current_user_id.get())
 
             # Determine status
             if task.max_runs and task.run_count >= task.max_runs:
@@ -1073,8 +1076,8 @@ Example review_criteria:
             else:
                 status = "Disabled"
 
-            schedule_str = _schedule_manager.format_schedule_type(task)
-            run_count_str = _schedule_manager.format_run_count(task)
+            schedule_str = _schedule_manager.get().format_schedule_type(task)
+            run_count_str = _schedule_manager.get().format_run_count(task)
             last_run = task.last_run[:16].replace("T", " ") if task.last_run else "Never"
             created = task.created_at[:16].replace("T", " ") if task.created_at else "Unknown"
 
@@ -1132,14 +1135,14 @@ Parameters:
         max_runs = args.get("max_runs")
         enabled = args.get("enabled", True)
 
-        if not _schedule_manager or not _current_user_id:
+        if not _schedule_manager.get() or not _current_user_id.get():
             return {
                 "content": [{"type": "text", "text": "Schedule feature not available"}],
                 "is_error": True
             }
 
         # Validate task_id
-        valid, error = _schedule_manager.validate_task_id(task_id)
+        valid, error = _schedule_manager.get().validate_task_id(task_id)
         if not valid:
             return {
                 "content": [{"type": "text", "text": f"Invalid task_id: {error}"}],
@@ -1147,7 +1150,7 @@ Parameters:
             }
 
         # Check if task already exists
-        if _schedule_manager.get_task(_current_user_id, task_id):
+        if _schedule_manager.get().get_task(_current_user_id.get(), task_id):
             return {
                 "content": [{"type": "text", "text": f"Task '{task_id}' already exists"}],
                 "is_error": True
@@ -1185,7 +1188,7 @@ Parameters:
                     "content": [{"type": "text", "text": "Error: interval is required for interval schedule type (e.g., '30m', '2h', '1d')"}],
                     "is_error": True
                 }
-            valid, interval_minutes, error = _schedule_manager.parse_interval(interval_str)
+            valid, interval_minutes, error = _schedule_manager.get().parse_interval(interval_str)
             if not valid:
                 return {
                     "content": [{"type": "text", "text": f"Invalid interval: {error}"}],
@@ -1198,7 +1201,7 @@ Parameters:
                     "content": [{"type": "text", "text": "Error: time is required (HH:MM format)"}],
                     "is_error": True
                 }
-            valid, hour, minute, error = _schedule_manager.validate_time(time_str)
+            valid, hour, minute, error = _schedule_manager.get().validate_time(time_str)
             if not valid:
                 return {
                     "content": [{"type": "text", "text": f"Invalid time: {error}"}],
@@ -1212,7 +1215,7 @@ Parameters:
                     "content": [{"type": "text", "text": "Error: weekdays is required for weekly type (e.g., 'mon,wed,fri')"}],
                     "is_error": True
                 }
-            valid, weekdays, error = _schedule_manager.parse_weekdays(weekdays_str)
+            valid, weekdays, error = _schedule_manager.get().parse_weekdays(weekdays_str)
             if not valid:
                 return {
                     "content": [{"type": "text", "text": f"Invalid weekdays: {error}"}],
@@ -1256,8 +1259,8 @@ Parameters:
             }
 
         try:
-            success = _schedule_manager.add_task(
-                user_id=_current_user_id,
+            success = _schedule_manager.get().add_task(
+                user_id=_current_user_id.get(),
                 task_id=task_id,
                 name=name,
                 hour=hour,
@@ -1274,9 +1277,9 @@ Parameters:
             )
 
             if success:
-                task = _schedule_manager.get_task(_current_user_id, task_id)
-                timezone = _schedule_manager.get_user_timezone(_current_user_id)
-                schedule_str = _schedule_manager.format_schedule_type(task) if task else schedule_type
+                task = _schedule_manager.get().get_task(_current_user_id.get(), task_id)
+                timezone = _schedule_manager.get().get_user_timezone(_current_user_id.get())
+                schedule_str = _schedule_manager.get().format_schedule_type(task) if task else schedule_type
                 status = "enabled" if enabled else "disabled"
                 max_info = f"\nMax runs: {max_runs}" if max_runs else ""
                 start_info = f"\nFirst run: {start_time}" if start_time else ""
@@ -1321,7 +1324,7 @@ Parameters:
         max_runs = args.get("max_runs")
         reset_run_count = args.get("reset_run_count", False)
 
-        if not _schedule_manager or not _current_user_id:
+        if not _schedule_manager.get() or not _current_user_id.get():
             return {
                 "content": [{"type": "text", "text": "Schedule feature not available"}],
                 "is_error": True
@@ -1344,7 +1347,7 @@ Parameters:
         hour = None
         minute = None
         if time_str:
-            valid, hour, minute, error = _schedule_manager.validate_time(time_str)
+            valid, hour, minute, error = _schedule_manager.get().validate_time(time_str)
             if not valid:
                 return {
                     "content": [{"type": "text", "text": f"Invalid time: {error}"}],
@@ -1352,8 +1355,8 @@ Parameters:
                 }
 
         try:
-            success, error = _schedule_manager.update_task(
-                user_id=_current_user_id,
+            success, error = _schedule_manager.get().update_task(
+                user_id=_current_user_id.get(),
                 task_id=task_id,
                 name=name,
                 hour=hour,
@@ -1408,7 +1411,7 @@ Parameters:
         """Delete a scheduled task"""
         task_id = args.get("task_id", "")
 
-        if not _schedule_manager or not _current_user_id:
+        if not _schedule_manager.get() or not _current_user_id.get():
             return {
                 "content": [{"type": "text", "text": "Schedule feature not available"}],
                 "is_error": True
@@ -1422,7 +1425,7 @@ Parameters:
 
         try:
             # Get task info before deletion for confirmation message
-            task = _schedule_manager.get_task(_current_user_id, task_id)
+            task = _schedule_manager.get().get_task(_current_user_id.get(), task_id)
             if not task:
                 return {
                     "content": [{"type": "text", "text": f"Task '{task_id}' not found"}],
@@ -1430,7 +1433,7 @@ Parameters:
                 }
 
             task_name = task.name
-            success = _schedule_manager.delete_task(_current_user_id, task_id)
+            success = _schedule_manager.get().delete_task(_current_user_id.get(), task_id)
 
             if success:
                 return {
@@ -1457,14 +1460,14 @@ Parameters:
     )
     async def custom_command_list(args: dict[str, Any]) -> dict[str, Any]:
         """List all custom commands"""
-        if not _custom_command_manager:
+        if not _custom_command_manager.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
             }
 
         try:
-            commands = _custom_command_manager.get_all_commands()
+            commands = _custom_command_manager.get().get_all_commands()
 
             if not commands:
                 return {
@@ -1504,7 +1507,7 @@ Parameters:
         """Get details of a custom command"""
         name = args.get("name", "")
 
-        if not _custom_command_manager:
+        if not _custom_command_manager.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
@@ -1517,7 +1520,7 @@ Parameters:
             }
 
         try:
-            cmd = _custom_command_manager.get_command(name)
+            cmd = _custom_command_manager.get().get_command(name)
             if not cmd:
                 return {
                     "content": [{"type": "text", "text": f"Command '/{name}' not found"}],
@@ -1538,7 +1541,7 @@ Parameters:
                 output += f"  Balance Mode: {'enabled' if cmd.config.get('balance_mode', True) else 'disabled'}\n"
 
                 # Get media files count
-                files = _custom_command_manager.list_media_files(name)
+                files = _custom_command_manager.get().list_media_files(name)
                 output += f"  Files Count: {len(files)}\n"
             elif cmd.command_type == "agent_script":
                 output += f"\nScript:\n{cmd.script or '(No script defined)'}"
@@ -1570,7 +1573,7 @@ Parameters:
     async def custom_command_create(args: dict[str, Any]) -> dict[str, Any]:
         """Create a new custom command"""
         logger.info(f"custom_command_create called with args: {args}")
-        logger.info(f"Current user: {_current_user_id}, Admin users: {_admin_user_ids}")
+        logger.info(f"Current user: {_current_user_id.get()}, Admin users: {_admin_user_ids.get()}")
 
         name = args.get("name", "")
         target_user_id = args.get("target_user_id")
@@ -1580,14 +1583,14 @@ Parameters:
         balance_mode = args.get("balance_mode", True)
         script = args.get("script", "")
 
-        if not _custom_command_manager or not _current_user_id:
+        if not _custom_command_manager.get() or not _current_user_id.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
             }
 
         # Admin permission check
-        if _current_user_id not in _admin_user_ids:
+        if _current_user_id.get() not in _admin_user_ids.get():
             return {
                 "content": [{"type": "text", "text": "Error: Only admin users can create custom commands"}],
                 "is_error": True
@@ -1631,11 +1634,11 @@ Parameters:
                     "balance_mode": balance_mode
                 }
 
-            success, message = _custom_command_manager.create_command(
+            success, message = _custom_command_manager.get().create_command(
                 name=name,
                 target_user_id=target_user_id,
                 description=description,
-                created_by=_current_user_id,
+                created_by=_current_user_id.get(),
                 command_type=command_type,
                 config=config,
                 script=script
@@ -1647,7 +1650,7 @@ Parameters:
                 result += f"Type: {command_type}\n"
                 result += f"Description: {description}"
                 if command_type == "random_media":
-                    folder = _custom_command_manager.get_media_folder(name)
+                    folder = _custom_command_manager.get().get_media_folder(name)
                     result += f"\n\nMedia folder created at: {folder}"
                     result += f"\nMedia type: {media_type}"
                     result += "\nYou can now add media files to this command's folder."
@@ -1688,14 +1691,14 @@ Parameters:
         media_type = args.get("media_type")
         balance_mode = args.get("balance_mode")
 
-        if not _custom_command_manager:
+        if not _custom_command_manager.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
             }
 
         # Admin permission check
-        if _current_user_id not in _admin_user_ids:
+        if _current_user_id.get() not in _admin_user_ids.get():
             return {
                 "content": [{"type": "text", "text": "Error: Only admin users can update custom commands"}],
                 "is_error": True
@@ -1722,7 +1725,7 @@ Parameters:
             if balance_mode is not None:
                 config["balance_mode"] = balance_mode
 
-            success, message = _custom_command_manager.update_command(
+            success, message = _custom_command_manager.get().update_command(
                 name=name,
                 description=description,
                 config=config if config else None,
@@ -1768,14 +1771,14 @@ Parameters:
         """Delete a custom command"""
         name = args.get("name", "")
 
-        if not _custom_command_manager:
+        if not _custom_command_manager.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
             }
 
         # Admin permission check
-        if _current_user_id not in _admin_user_ids:
+        if _current_user_id.get() not in _admin_user_ids.get():
             return {
                 "content": [{"type": "text", "text": "Error: Only admin users can delete custom commands"}],
                 "is_error": True
@@ -1788,7 +1791,7 @@ Parameters:
             }
 
         try:
-            success, message = _custom_command_manager.delete_command(name)
+            success, message = _custom_command_manager.get().delete_command(name)
 
             if success:
                 return {"content": [{"type": "text", "text": message}]}
@@ -1815,14 +1818,14 @@ Parameters:
         old_name = args.get("old_name", "")
         new_name = args.get("new_name", "")
 
-        if not _custom_command_manager:
+        if not _custom_command_manager.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
             }
 
         # Admin permission check
-        if _current_user_id not in _admin_user_ids:
+        if _current_user_id.get() not in _admin_user_ids.get():
             return {
                 "content": [{"type": "text", "text": "Error: Only admin users can rename custom commands"}],
                 "is_error": True
@@ -1835,7 +1838,7 @@ Parameters:
             }
 
         try:
-            success, message = _custom_command_manager.rename_command(old_name, new_name)
+            success, message = _custom_command_manager.get().rename_command(old_name, new_name)
 
             if success:
                 return {"content": [{"type": "text", "text": message}]}
@@ -1857,10 +1860,10 @@ Parameters:
 
     def _get_memory_manager():
         """Get or create MemoryManager instance"""
-        if not _working_directory:
+        if not _working_directory.get():
             return None
         from ..memory import MemoryManager
-        return MemoryManager(_working_directory)
+        return MemoryManager(_working_directory.get())
 
     @tool(
         "memory_save",
@@ -2348,14 +2351,14 @@ Returns matching conversations from both recent chat logs and archived summaries
         query = args.get("query", "").strip()
         limit = args.get("limit", 5)
 
-        if not _working_directory:
+        if not _working_directory.get():
             return {
                 "content": [{"type": "text", "text": "Chat history feature not available"}],
                 "is_error": True
             }
 
         try:
-            user_dir = Path(_working_directory).parent
+            user_dir = Path(_working_directory.get()).parent
             summaries_dir = user_dir / "chat_summaries"
             logs_dir = user_dir / "chat_logs"
 
@@ -2479,7 +2482,7 @@ Returns matching conversations from both recent chat logs and archived summaries
         """List media files for a custom command"""
         name = args.get("name", "")
 
-        if not _custom_command_manager:
+        if not _custom_command_manager.get():
             return {
                 "content": [{"type": "text", "text": "Custom command feature not available"}],
                 "is_error": True
@@ -2492,7 +2495,7 @@ Returns matching conversations from both recent chat logs and archived summaries
             }
 
         try:
-            cmd = _custom_command_manager.get_command(name)
+            cmd = _custom_command_manager.get().get_command(name)
             if not cmd:
                 return {
                     "content": [{"type": "text", "text": f"Command '/{name}' not found"}],
@@ -2505,10 +2508,10 @@ Returns matching conversations from both recent chat logs and archived summaries
                     "is_error": True
                 }
 
-            files = _custom_command_manager.list_media_files(name)
+            files = _custom_command_manager.get().list_media_files(name)
 
             if not files:
-                folder = _custom_command_manager.get_media_folder(name)
+                folder = _custom_command_manager.get().get_media_folder(name)
                 return {
                     "content": [{"type": "text", "text": f"No media files found for /{name}\nMedia folder: {folder}"}]
                 }

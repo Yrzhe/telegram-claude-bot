@@ -4,6 +4,17 @@ All notable changes are documented in this file. Newest changes at the top.
 
 ---
 
+## [2026-03-23] Fix: Critical race condition in per-user tool state
+
+### Bug Fixes
+- **SECURITY**: Global variables for user-specific state (`_current_user_id`, `_working_directory`, etc.) in `bot/agent/tools.py` caused race conditions when multiple users interacted concurrently. One user's operations could execute under another user's identity, leading to cross-user data leakage (scheduled tasks, files, custom commands, memories).
+- Replaced all 8 per-user global variables with Python `contextvars.ContextVar` for async-safe per-request isolation. Each concurrent request now has its own isolated context.
+
+### Modified Files
+- `bot/agent/tools.py` - Replaced globals with ContextVar for: `_current_user_id`, `_working_directory`, `_delegate_callback`, `_delegate_review_callback`, `_schedule_manager`, `_task_manager`, `_custom_command_manager`, `_admin_user_ids`
+
+---
+
 ## [2026-03-23] Fix: Interval scheduled tasks not firing after container restart
 
 ### Bug Fixes
