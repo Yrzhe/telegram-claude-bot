@@ -909,6 +909,10 @@ class ScheduleManager:
                 except Exception as e:
                     logger.warning(f"Failed to parse start_time '{task.start_time}' for task {task.task_id}: {e}")
 
+            # If still None (no last_run, no start_time), run immediately instead of waiting a full interval
+            if first_run is None:
+                first_run = 1
+
             self._job_queue.run_repeating(
                 job_callback,
                 interval=interval_seconds,
